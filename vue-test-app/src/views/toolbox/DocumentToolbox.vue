@@ -16,6 +16,8 @@
       <div class="hero-stats"><div><strong>{{ documents.length }}</strong><span>可用文档</span></div><div><strong>{{ completedCount }}</strong><span>已执行操作</span></div><div><strong>12</strong><span>工具能力</span></div></div>
     </section>
 
+    <AdvancedWorkspace :current-content="workingContent" @apply="value => workingContent = value" />
+
     <section class="workspace-grid">
       <aside class="document-pane">
         <div class="pane-heading"><div><span class="pane-kicker">01 / 选择内容</span><h3>当前文档</h3></div><el-button text @click="clearSelection" v-if="selectedDocumentId">清除</el-button></div>
@@ -53,8 +55,6 @@
         <div class="result-panel" v-if="result"><div class="result-heading"><span>处理结果</span><el-button text size="small" @click="result = ''">清除</el-button></div><pre>{{ result }}</pre><div class="result-actions" v-if="resultCanApply"><el-button size="small" @click="copyResult">复制结果</el-button><el-button size="small" type="primary" @click="applyResult">应用到编辑区</el-button></div></div>
       </aside>
     </section>
-
-    <AdvancedWorkspace :current-content="workingContent" @apply="value => workingContent = value" />
 
     <section class="capability-note"><el-icon><InfoFilled /></el-icon><span><strong>已可执行：</strong>智能清洗、排版预设、AI 校对、文档对比、摘要、关键词、敏感信息脱敏、TXT / Markdown 导出、HTML PPT 生成。<strong>服务待接入：</strong>OCR、PDF 拆分合并、Word/PDF 格式转换、表格提取 Excel。</span></section>
   </div>
