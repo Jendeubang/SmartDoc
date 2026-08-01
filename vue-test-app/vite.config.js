@@ -6,9 +6,7 @@ const aiTarget = process.env.VITE_AI_TARGET || 'http://localhost:8083'
 
 export default defineConfig({
   plugins: [vue()],
-  define: {
-    global: 'globalThis',
-  },
+
   server: {
     host: '0.0.0.0',
     port: 5173,

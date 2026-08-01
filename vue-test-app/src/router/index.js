@@ -9,6 +9,7 @@ const routes = [
     { path: '/index.html', redirect: '/login' },
     { path: '/login', component: () => import('../views/auth/LoginView.vue') },
     { path: '/register', component: () => import('../views/auth/RegisterView.vue') },
+    { path: '/morandi-preview', component: () => import('../views/preview/MorandiPreview.vue'), meta: { public: true } },
     { path: '/dashboard', component: () => import('../views/dashboard/IndexView.vue') },
     { path: '/ppt-runtime', name: 'pptRuntime', component: () => import('../views/dashboard/PptRuntime.vue')},
     { path: '/aiops', component: () => import('../views/aiops/AIOpsView.vue') },
@@ -24,7 +25,7 @@ const router = createRouter({
 // 路由守卫
 router.beforeEach((to, from, next) => {
     const token = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN)
-    if (to.path !== '/login' && to.path !== '/register' && !token) {
+    if (!to.meta.public && to.path !== '/login' && to.path !== '/register' && !token) {
         next('/login')
     } else {
         next()
