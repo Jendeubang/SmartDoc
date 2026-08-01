@@ -96,6 +96,13 @@
 
       <!-- 底部悬浮输入区 (支持 RAG 切换) -->
       <div class="chat-input-container">
+        <div class="chat-context-row">
+          <span class="chat-context-label"><el-icon><FolderOpened /></el-icon> 文档上下文</span>
+          <el-select v-model="selectedChatDocumentIds" class="chat-document-select" multiple collapse-tags collapse-tags-tooltip clearable filterable :loading="chatDocumentsLoading" placeholder="不选择时检索全部知识库">
+            <el-option v-for="doc in chatDocuments" :key="doc.id" :label="doc.title" :value="doc.id" />
+          </el-select>
+        </div>
+        <div class="chat-context-hint">{{ selectedChatDocumentIds.length ? `已选择 ${selectedChatDocumentIds.length} 份文档，AI 将优先依据这些文档回答` : '未选择文档时，AI 将根据问题检索你的全部知识库' }}</div>
         <div class="input-wrapper-inner" :class="{ 'is-focused': isInputFocused, 'rag-active': isRagMode }">
           <!-- 模式切换：气泡/书本图标 -->
           <el-tooltip :content="isRagMode ? '已开启：基于已索引文档回答' : '点击后：基于已索引文档回答'" placement="top">
@@ -372,6 +379,7 @@ const currentUserId = ref(localStorage.getItem('userId') || '')
 const docContent = ref(''); const docLoading = ref(false); const aiSummary = ref('')
 const userMsg = ref(''); const isAiThinking = ref(false); const chatHistory = ref([]); const currentConvId = ref('')
 const chatFileInputRef = ref(null); const chatUploadLoading = ref(false)
+const chatDocuments = ref([]); const chatDocumentsLoading = ref(false); const selectedChatDocumentIds = ref([])
 const showAiBall = ref(false); const ballStyle = reactive({ top: '0px', left: '0px' }); const selectedText = ref('')
 const showHistory = ref(false); const versionList = ref([])
 const keywords = ref([]); const keywordsLoading = ref(false); const isRagMode = ref(false); const replaceOnWrite = ref(true)
@@ -553,6 +561,10 @@ const loadDocData = async () => {
 // 首次加载
 onMounted(() => {
   fetchModels()
+  if (isChatMode.value) {
+    isRagMode.value = true
+    fetchChatDocuments()
+  }
   loadDocData().then(() => {
     const paperElement = document.querySelector('.paper')
     if (paperElement) {
@@ -624,7 +636,13 @@ const onChatFileSelected = async (event) => {
     const fileRes = await fileApi.upload(rawFile)
     const fileId = fileRes?.data?.fileId || fileRes?.data?.id
     if (!fileId) throw new Error('File upload did not return a fileId')
-    await docApi.createDoc({ title: rawFile.name, fileId, category: 'default' })
+    const docRes = await docApi.createDoc({ title: rawFile.name, fileId, category: 'default' })
+    const createdDocument = docRes?.data || docRes || {}
+    await fetchChatDocuments()
+    const createdId = createdDocument.id || createdDocument.documentId
+    if (createdId && !selectedChatDocumentIds.value.includes(createdId)) {
+      selectedChatDocumentIds.value.push(createdId)
+    }
     chatHistory.value.push({ role: 'user', text: `已上传文档：${rawFile.name}` })
     chatHistory.value.push({ role: 'ai', text: '文档已保存到云端文档库。开启“基于文档回答”后，可针对已完成索引的文档进行问答。' })
     ElMessage.success(`「${rawFile.name}」已上传到云端文档库`)
@@ -635,6 +653,50 @@ const onChatFileSelected = async (event) => {
   } finally {
     chatUploadLoading.value = false
     event.target.value = ''
+  }
+}
+const fetchChatDocuments = async () => {
+  const userId = currentUserId.value || localStorage.getItem('userId')
+  if (!userId) return
+
+  chatDocumentsLoading.value = true
+  try {
+    const response = await docApi.getUserDocs(userId)
+    const documents = response?.data || []
+    chatDocuments.value = documents.map(doc => ({
+      id: doc.id,
+      title: doc.title || '未命名文档'
+    }))
+  } catch (error) {
+    console.error('Failed to load chat documents', error)
+  } finally {
+    chatDocumentsLoading.value = false
+  }
+}
+
+const buildSelectedDocumentContext = async () => {
+  if (!selectedChatDocumentIds.value.length) return { content: '', ids: [], titles: [] }
+
+  const selectedIds = [...selectedChatDocumentIds.value]
+  const details = await Promise.all(selectedIds.map(async id => {
+    try {
+      const response = await docApi.getDocDetail(id)
+      return response?.data || response || {}
+    } catch {
+      return {}
+    }
+  }))
+
+  const documents = details.map((doc, index) => {
+    const title = doc.title || chatDocuments.value.find(item => item.id === selectedIds[index])?.title || `文档 ${index + 1}`
+    const content = String(doc.content || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+    return { id: selectedIds[index], title, content }
+  })
+
+  return {
+    ids: selectedIds,
+    titles: documents.map(doc => doc.title),
+    content: documents.map(doc => `【${doc.title}】\n${doc.content || '（该文档尚无可读取正文，请结合知识库检索回答。）'}`).join('\n\n').slice(0, 12000)
   }
 }
 const handleSend = async () => {
@@ -685,6 +747,20 @@ const handleSend = async () => {
   try {
     const contextText = document.querySelector('.paper')?.innerText || ''
     let finalPrompt = q
+    let chatDocumentContext = ''
+    let chatDocumentIds = []
+
+    if (isChatMode.value) {
+      const selectedContext = await buildSelectedDocumentContext()
+      chatDocumentContext = selectedContext.content
+      chatDocumentIds = selectedContext.ids
+
+      if (selectedContext.content) {
+        finalPrompt = `【系统指令】请优先且仅基于用户选中的文档回答。若文档正文不足以回答，请明确说明并再检索知识库补充，不得编造。\n\n【已选择文档】${selectedContext.titles.join('、')}\n\n【文档内容】\n${selectedContext.content}\n\n【用户问题】\n${q}`
+      } else if (isRagMode.value) {
+        finalPrompt = `【系统指令】用户未选择具体文档。请先使用 rag-search 工具检索该用户的全部知识库，再基于检索结果回答；如果没有检索到相关文档，请明确说明，不得要求用户再次提供文档。\n\n【用户问题】\n${q}`
+      }
+    }
 
     if (!isChatMode.value && contextText.trim().length > 0) {
       const writePolicy = replaceOnWrite.value
@@ -703,13 +779,14 @@ const handleSend = async () => {
       model: currentModel.value,
       conversationId: currentConvId.value || undefined,
       context: {
-        documentId: shouldSendCurrentDocumentId ? docId : undefined,
+        documentId: shouldSendCurrentDocumentId ? docId : (isChatMode.value ? chatDocumentIds[0] : undefined),
         frontendDocumentWrite: frontendWriteIntent,
         frontendDeleteConfirmed: frontendDeleteIntent,
-        documentContent: contextText.substring(0, 3000),
+        documentContent: (isChatMode.value ? chatDocumentContext : contextText).substring(0, 12000),
+        selectedDocumentIds: isChatMode.value ? chatDocumentIds : undefined,
         selectedText: pendingSelectedText,
         writeMode: frontendWriteMode,
-        ragEnabled: isRagMode.value
+        ragEnabled: isChatMode.value ? true : isRagMode.value
       }
     })
 
@@ -1632,4 +1709,12 @@ const scrollToBottom = () => { nextTick(() => {
 .chat-attach-btn:disabled { cursor: wait; opacity: .6; }
 .chat-file-input { display: none; }
 @media (max-width: 760px) { .chat-sidebar { display: none; } .chat-input-container { padding: 16px; } .input-wrapper-inner { height: auto; min-height: 64px; border-radius: 16px; } .rag-mode-toggle { min-width: 40px; padding: 0 11px; } .rag-mode-toggle span { display: none; } .chat-attach-btn { margin-left: 10px; } .chat-input { margin-left: 10px; } }
+
+/* ==================== Chat document context ==================== */
+.chat-context-row { width: 100%; max-width: 860px; display: flex; align-items: center; gap: 12px; margin: 0 auto 8px; }
+.chat-context-label { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 6px; color: #74698e; font-size: 12px; font-weight: 700; }
+.chat-document-select { flex: 1; }
+.chat-context-row :deep(.el-select__wrapper) { min-height: 36px; border-radius: 10px; background: #fffdf9; box-shadow: 0 0 0 1px #e4dce7 inset; }
+.chat-context-hint { width: 100%; max-width: 860px; margin: 0 auto 12px; color: #938a9b; font-size: 12px; }
+@media (max-width: 760px) { .chat-context-row { align-items: flex-start; flex-direction: column; gap: 6px; } .chat-document-select { width: 100%; } }
 </style>
