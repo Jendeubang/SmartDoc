@@ -210,6 +210,8 @@ services:
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      # 文件服务地址（容器网络内使用服务名）
+      FILE_SERVICE_URL: http://file-service:8082
       # 用户服务地址（用于校验协作者）
       USER_SERVICE_URL: http://user-service:8081
       # 禁用 Nacos
