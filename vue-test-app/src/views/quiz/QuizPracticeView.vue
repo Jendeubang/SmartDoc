@@ -129,16 +129,63 @@ function parseModelQuestions(result) {
   if (start < 0 || end <= start) return []
   try { const parsed = JSON.parse(clean.slice(start, end + 1)); return Array.isArray(parsed) ? parsed.map(normalizeQuestion).filter(question => question.stem && question.answer) : [] } catch { return [] }
 }
+function detectQuestionTypeHeading(line, fallback) {
+  if (/多项选择|多选题/.test(line)) return 'multiple'
+  if (/单项选择|单选题|选择题/.test(line)) return 'single'
+  if (/判断题|辨析题/.test(line)) return 'judge'
+  if (/填空题/.test(line)) return 'fill'
+  if (/简答题|问答题|论述题/.test(line)) return 'short'
+  return fallback
+}
 function extractQuestionAnswerPairs(content, sourceName, offset = 0) {
-  const questions = []
-  const pattern = /(?:^|\n)\s*(?:\d+\s*[.、．]\s*)?问\s*[：:]\s*([\s\S]*?)\s*\n\s*答\s*[：:]\s*([\s\S]*?)(?=\n\s*(?:(?:\d+\s*[.、．]\s*)?问\s*[：:]|[一二三四五六七八九十]+、)|$)/g
-  let match
-  while ((match = pattern.exec(content)) !== null) {
-    const stem = match[1].trim()
-    const answer = match[2].trim()
-    if (stem.length > 2 && answer.length > 0) questions.push(normalizeQuestion({ id: `source-${offset + questions.length + 1}`, type: 'short', stem, answer, analysis: `答案提取自《${sourceName}》。` }, offset + questions.length))
+  const lines = String(content || '').replace(/\r\n/g, '\n').split('\n')
+  const blocks = []
+  let sectionType = 'short'
+  let current = null
+  const pushCurrent = () => { if (current?.lines.length) blocks.push(current); current = null }
+  for (const rawLine of lines) {
+    const line = rawLine.trim()
+    if (!line) { if (current) current.lines.push(''); continue }
+    const nextType = detectQuestionTypeHeading(line, sectionType)
+    if (nextType !== sectionType && /(选择题|判断题|填空题|简答题|问答题|论述题)/.test(line)) { pushCurrent(); sectionType = nextType; continue }
+    const start = line.match(/^(\d+)\s*[.、．]\s*(.+)$/)
+    const rest = start?.[2] || ''
+    const explicitQuestion = /^(?:问|题目|问题)\s*[：:]/.test(rest)
+    const questionLike = /[？?]$/.test(rest) || /^(?:单选|多选|判断|填空|简答)题/.test(rest)
+    if (start && (explicitQuestion || sectionType !== 'short' || questionLike)) {
+      pushCurrent(); current = { sectionType, lines: [rest] }; continue
+    }
+    if (current) current.lines.push(line)
   }
-  return questions
+  pushCurrent()
+
+  return blocks.map((block, index) => {
+    const body = block.lines.join('\n').trim()
+    const answerMatch = body.match(/(?:^|\n)\s*(?:参考)?(?:正确)?(?:答案|答)\s*[：:]\s*([\s\S]*)$/)
+    if (!answerMatch) return null
+    const beforeAnswer = body.slice(0, answerMatch.index).trim()
+    const options = []
+    const stemLines = []
+    for (const line of beforeAnswer.split('\n')) {
+      const option = line.trim().match(/^([A-H])\s*[.、．:：]\s*(.+)$/i)
+      if (option) options.push({ key: option[1].toUpperCase(), label: option[2].trim() })
+      else stemLines.push(line)
+    }
+    let stem = stemLines.join('\n').replace(/^(?:问|题目|问题)\s*[：:]\s*/, '').trim()
+    if (!stem) return null
+    const answerText = answerMatch[1].trim().replace(/\n[一二三四五六七八九十]+、[\s\S]*$/, '').trim()
+    let type = block.sectionType
+    const keys = (answerText.match(/\b[A-H]\b/gi) || []).map(key => key.toUpperCase())
+    if (options.length >= 2 && type === 'short') type = keys.length > 1 ? 'multiple' : 'single'
+    if (type === 'judge') {
+      return normalizeQuestion({ id: `source-${offset + index + 1}`, type, stem, options: [{ key: 'true', label: '正确' }, { key: 'false', label: '错误' }], answer: /^(?:正确|对|是|true)$/i.test(answerText) ? 'true' : 'false', analysis: `答案提取自《${sourceName}》。` }, offset + index)
+    }
+    if ((type === 'single' || type === 'multiple') && options.length >= 2) {
+      return normalizeQuestion({ id: `source-${offset + index + 1}`, type, stem, options, answer: type === 'multiple' ? keys : (keys[0] || answerText), analysis: `答案提取自《${sourceName}》。` }, offset + index)
+    }
+    if (type === 'fill') return normalizeQuestion({ id: `source-${offset + index + 1}`, type, stem, answer: answerText, analysis: `答案提取自《${sourceName}》。` }, offset + index)
+    return normalizeQuestion({ id: `source-${offset + index + 1}`, type: 'short', stem, answer: answerText, analysis: `答案提取自《${sourceName}》。` }, offset + index)
+  }).filter(Boolean)
 }
 async function loadDocuments() {
   if (!userId()) { router.push('/login'); return }
