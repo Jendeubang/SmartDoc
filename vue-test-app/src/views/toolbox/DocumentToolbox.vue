@@ -33,7 +33,7 @@
       <main class="tools-pane">
         <div class="pane-heading"><div><span class="pane-kicker">02 / 选择能力</span><h3>工具矩阵</h3></div><span class="selection-hint">{{ selectedTool ? selectedTool.name : '请选择一个工具' }}</span></div>
         <div class="tool-groups">
-          <section v-for="group in toolGroups" :key="group.name" class="tool-group"><div class="group-label"><span :style="{ background: group.color }"></span>{{ group.name }}</div><div class="tool-card-grid"><button v-for="tool in group.items" :key="tool.id" class="tool-card" :class="{ active: activeToolId === tool.id }" @click="activeToolId = tool.id"><span class="tool-icon" :style="{ background: tool.tint, color: tool.color }"><el-icon><component :is="tool.icon" /></el-icon></span><span class="tool-card-copy"><strong>{{ tool.name }}</strong><small>{{ tool.description }}</small></span><el-icon class="tool-arrow"><ArrowRight /></el-icon><em v-if="tool.mode === 'planned'">待接入</em></button></div></section>
+          <section v-for="group in toolGroups" :key="group.name" class="tool-group"><div class="group-label"><span :style="{ background: group.color }"></span>{{ group.name }}</div><div class="tool-card-grid"><button v-for="tool in group.items" :key="tool.id" class="tool-card" :class="{ active: activeToolId === tool.id }" @click="tool.id === 'quiz' ? router.push('/quiz') : activeToolId = tool.id"><span class="tool-icon" :style="{ background: tool.tint, color: tool.color }"><el-icon><component :is="tool.icon" /></el-icon></span><span class="tool-card-copy"><strong>{{ tool.name }}</strong><small>{{ tool.description }}</small></span><el-icon class="tool-arrow"><ArrowRight /></el-icon><em v-if="tool.mode === 'planned'">待接入</em></button></div></section>
         </div>
       </main>
 

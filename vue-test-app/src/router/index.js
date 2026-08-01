@@ -14,6 +14,7 @@ const routes = [
     { path: '/ppt-runtime', name: 'pptRuntime', component: () => import('../views/dashboard/PptRuntime.vue')},
     { path: '/aiops', component: () => import('../views/aiops/AIOpsView.vue') },
     { path: '/toolbox', component: () => import('../views/toolbox/DocumentToolbox.vue') },
+    { path: '/quiz/:id?', name: 'smartQuiz', component: () => import('../views/quiz/QuizPracticeView.vue') },
     { path: '/editor/:id', component: () => import('../views/editor/EditorView.vue') },
     { path: '/agent-workbench', component: () => import('../views/agent/AgentWorkbench.vue') }
 ]
