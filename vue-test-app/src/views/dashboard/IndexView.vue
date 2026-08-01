@@ -170,7 +170,7 @@
                   <div class="doc-meta">
                     <span>{{ doc.time }}</span>
                     <el-tag size="small" :type="doc.analyzed ? 'success' : 'info'" round effect="light">
-                      {{ doc.analyzed ? 'AI已就绪' : '待处理' }}
+                      {{ doc.analyzed ? '已处理' : '待处理' }}
                     </el-tag>
                   </div>
                 </div>
@@ -228,7 +228,7 @@
                   <div class="doc-meta">
                     <span>{{ doc.time }}</span>
                     <el-tag size="small" :type="doc.analyzed ? 'success' : 'info'" round effect="light">
-                      {{ doc.analyzed ? 'AI已就绪' : '待处理' }}
+                      {{ doc.analyzed ? '已处理' : '待处理' }}
                     </el-tag>
                   </div>
                 </div>
@@ -367,7 +367,7 @@ const fetchFiles = async () => {
         fileId: item.fileId,
         name: item.title || '未命名文档',
         time: item.createTime ? new Date(item.createTime).toLocaleDateString() : '未知',
-        analyzed: !!item.summary,
+        analyzed: !!item.summary || getProcessedDocumentIds().includes(String(item.id)),
         color: ['bg-blue', 'bg-orange', 'bg-green', 'bg-purple'][Math.floor(Math.random() * 4)]
       }))
     }
@@ -401,6 +401,26 @@ onMounted(() => { fetchUser(); fetchFiles(); fetchModels() })
 
 const filteredList = computed(() => docList.value.filter(d => d.name.toLowerCase().includes(search.value.toLowerCase())))
 
+const processedDocumentsKey = () => `smartdoc_processed_documents_${getCurrentUserId() || 'guest'}`
+
+const getProcessedDocumentIds = () => {
+  try {
+    const ids = JSON.parse(localStorage.getItem(processedDocumentsKey()) || '[]')
+    return Array.isArray(ids) ? ids.map(String) : []
+  } catch {
+    return []
+  }
+}
+
+const markDocumentProcessed = (id) => {
+  const documentId = String(id)
+  const processedIds = new Set(getProcessedDocumentIds())
+  processedIds.add(documentId)
+  localStorage.setItem(processedDocumentsKey(), JSON.stringify([...processedIds]))
+  const target = docList.value.find(doc => String(doc.id) === documentId)
+  if (target) target.analyzed = true
+}
+
 // 搜索逻辑
 const handleSearch = async () => {
   if (!search.value.trim()) {
@@ -418,7 +438,7 @@ const handleSearch = async () => {
         fileId: item.fileId,
         name: item.title || '未命名文档',
         time: item.createTime ? new Date(item.createTime).toLocaleDateString() : '未知',
-        analyzed: !!item.summary,
+        analyzed: !!item.summary || getProcessedDocumentIds().includes(String(item.id)),
         color: ['bg-blue', 'bg-orange', 'bg-green', 'bg-purple'][Math.floor(Math.random() * 4)]
       }))
     }
@@ -582,6 +602,7 @@ const handlePptAction = async (actionType) => {
 
 // 跳转编辑器
 const goToEditor = (id, name) => {
+  markDocumentProcessed(id)
   sessionStorage.setItem('currentDocName', name)
   router.push(`/editor/${id}`)
 }
