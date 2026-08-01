@@ -78,6 +78,9 @@ export const aiApi = {
     indexWithSegment: (documentId, content, strategy) => request.post(`/ai/rag/index/segment?documentId=${documentId}&strategy=${strategy}`, content, { headers: { 'Content-Type': 'text/plain' } }),
     // 获取已分段的列表
     getDocumentSegments: (documentId) => request.get(`/ai/rag/document/${documentId}/segments`),
+    getIndexedDocuments: () => request.get('/ai/rag/documents'),
+    removeIndexedDocument: (documentId) => request.delete(`/ai/rag/document/${documentId}`),
+    getIndexMetadata: (documentId) => request.get(`/ai/rag/document/${documentId}/metadata`),
     // 获取统计信息
     getRagStatistics: () => request.get('/ai/rag/statistics'),
 

@@ -54,6 +54,8 @@
       </aside>
     </section>
 
+    <AdvancedWorkspace :current-content="workingContent" @apply="value => workingContent = value" />
+
     <section class="capability-note"><el-icon><InfoFilled /></el-icon><span><strong>已可执行：</strong>智能清洗、排版预设、AI 校对、文档对比、摘要、关键词、敏感信息脱敏、TXT / Markdown 导出、HTML PPT 生成。<strong>服务待接入：</strong>OCR、PDF 拆分合并、Word/PDF 格式转换、表格提取 Excel。</span></section>
   </div>
 </template>
@@ -64,6 +66,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { docApi } from '../../api/document'
 import { aiApi } from '../../api/ai'
+import AdvancedWorkspace from './AdvancedWorkspace.vue'
 
 const router = useRouter()
 const pageLoading = ref(false)
