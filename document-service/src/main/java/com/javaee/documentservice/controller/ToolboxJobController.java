@@ -13,7 +13,7 @@ import java.util.Map;
 public class ToolboxJobController {
     private final ToolboxJobService jobs; private final RequestUserContext users;
     public ToolboxJobController(ToolboxJobService jobs, RequestUserContext users) { this.jobs = jobs; this.users = users; }
-    @PostMapping public Result<Map<String, Object>> submit(@RequestBody ToolboxJobRequest request) { return Result.success(jobs.submit(request, users.getRequiredUserId())); }
+    @PostMapping public Result<Map<String, Object>> submit(@RequestBody ToolboxJobRequest request, @RequestHeader("Authorization") String authorization) { return Result.success(jobs.submit(request, users.getRequiredUserId(), authorization)); }
     @GetMapping("/{jobId}") public Result<Map<String, Object>> status(@PathVariable String jobId) { return Result.success(jobs.snapshot(jobId, users.getRequiredUserId())); }
     @GetMapping("/{jobId}/download") public ResponseEntity<byte[]> download(@PathVariable String jobId) { Map<String, Object> job = jobs.snapshot(jobId, users.getRequiredUserId()); return ResponseEntity.ok().header("Content-Disposition", "attachment; filename=" + job.get("fileName")).header("Content-Type", String.valueOf(job.get("contentType"))).body(jobs.output(jobId, users.getRequiredUserId())); }
 }
