@@ -245,7 +245,7 @@
         <div class="ai-sidebar-top">
           <div class="ai-header">
             <span style="display: flex; align-items: center; gap: 6px;">
-              <el-icon color="#409EFF" size="18"><MagicStick /></el-icon> DocAI 灵感助理
+              <el-icon color="#409EFF" size="18"><MagicStick /></el-icon> SmartDoc 灵感助理
             </span>
             <el-select v-model="currentModel" size="small" placeholder="切换模型" style="width: 130px;" @change="handleModelChange">
               <el-option v-for="m in modelOptions" :key="m.code" :label="m.name" :value="m.code" />
