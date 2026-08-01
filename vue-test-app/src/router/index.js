@@ -13,6 +13,7 @@ const routes = [
     { path: '/dashboard', component: () => import('../views/dashboard/IndexView.vue') },
     { path: '/ppt-runtime', name: 'pptRuntime', component: () => import('../views/dashboard/PptRuntime.vue')},
     { path: '/aiops', component: () => import('../views/aiops/AIOpsView.vue') },
+    { path: '/toolbox', component: () => import('../views/toolbox/DocumentToolbox.vue') },
     { path: '/editor/:id', component: () => import('../views/editor/EditorView.vue') },
     { path: '/agent-workbench', component: () => import('../views/agent/AgentWorkbench.vue') }
 ]

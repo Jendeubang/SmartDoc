@@ -12,6 +12,7 @@
             <div class="nav-item" :class="{ active: !showDocLibrary }" @click="goToWorkbench"><el-icon><Monitor /></el-icon> 我的工作台</div>
             <div class="nav-item" :class="{ active: showDocLibrary }" @click="goToDocLibrary"><el-icon><FolderOpened /></el-icon> 云端文档库</div>
             <div class="nav-item ai-chat-nav" @click="goToAiChat"><el-icon><ChatLineSquare /></el-icon> SmartDoc AI 对话</div>
+            <div class="nav-item toolbox-nav" @click="goToToolbox"><el-icon><MagicStick /></el-icon> 文档处理工具箱</div>
             <div v-if="isAdminUser" class="nav-item aiops-nav" @click="goToAIOps">
               <el-icon><Cpu /></el-icon> AI Ops 运维中心
             </div>
@@ -628,6 +629,10 @@ const goToAiChat = () => {
   router.push('/editor/chat-mode')
 }
 
+const goToToolbox = () => {
+  router.push('/toolbox')
+}
+
 const goToWorkbench = () => {
   showDocLibrary.value = false
 }
@@ -653,6 +658,8 @@ const goToAIOps = () => {
 .nav-item.aiops-nav:hover { background: #fdf6ec; color: #e6a23c; }
 .nav-item.ai-chat-nav { color: #74698e; }
 .nav-item.ai-chat-nav:hover { background: #f1edf7; color: #615778; }
+.nav-item.toolbox-nav { color: #6d8a64; }
+.nav-item.toolbox-nav:hover { background: #edf4e2; color: #5d7755; }
 
 .aside-bottom { padding: 16px; border-top: 1px solid #dee0e3; }
 .user-profile { display: flex; align-items: center; gap: 10px; padding: 8px; cursor: pointer; border-radius: 8px; transition: 0.2s; }
