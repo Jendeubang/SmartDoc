@@ -42,12 +42,13 @@
         <template v-if="selectedTool">
           <p class="operation-description">{{ selectedTool.detail }}</p>
           <div v-if="selectedTool.id === 'format'" class="setting-block"><label>排版预设</label><el-radio-group v-model="formatPreset" class="preset-group"><el-radio-button label="formal">正式报告</el-radio-button><el-radio-button label="clear">清晰阅读</el-radio-button><el-radio-button label="compact">紧凑笔记</el-radio-button></el-radio-group><p class="helper-text">会统一标题、段落间距与项目列表格式，不改变原有文字内容。</p></div>
-          <div v-else-if="['compare', 'pdf'].includes(selectedTool.id)" class="setting-block"><label>对比对象</label><el-select v-model="compareDocumentId" filterable placeholder="选择第二份文档" class="document-select"><el-option v-for="doc in compareCandidates" :key="doc.id" :label="doc.title || doc.name" :value="String(doc.id)" /></el-select><p class="helper-text">按段落计算新增和删除内容，并生成可读摘要。</p></div>
-          <div v-else-if="selectedTool.id === 'convert'" class="setting-block"><label>导出格式</label><el-radio-group v-model="exportFormat" class="preset-group"><el-radio-button label="txt">TXT</el-radio-button><el-radio-button label="md">Markdown</el-radio-button></el-radio-group><p class="helper-text">TXT 与 Markdown 可直接在浏览器生成下载；Word、PDF 转换需要后端文件转换服务。</p></div>
+          <div v-else-if="selectedTool.id === 'compare'" class="setting-block"><label>对比对象</label><el-select v-model="compareDocumentId" filterable placeholder="选择第二份文档" class="document-select"><el-option v-for="doc in compareCandidates" :key="doc.id" :label="doc.title || doc.name" :value="String(doc.id)" /></el-select><p class="helper-text">按段落计算新增和删除内容，并生成可读摘要。</p></div>
+          <div v-else-if="selectedTool.id === 'pdf'" class="setting-block"><label>PDF 操作</label><el-radio-group v-model="pdfOperation" class="preset-group"><el-radio-button label="split">拆分页面</el-radio-button><el-radio-button label="merge">合并两份 PDF</el-radio-button></el-radio-group><template v-if="pdfOperation === 'split'"><el-input v-model="pdfPages" class="page-input" placeholder="页码，例如 1-3,5；留空则导出全部页" /><p class="helper-text">填写要保留的页码或页码范围，留空时会生成一份完整副本。</p></template><template v-else><el-select v-model="compareDocumentId" filterable placeholder="选择第二份 PDF 文档" class="document-select"><el-option v-for="doc in compareCandidates" :key="doc.id" :label="doc.title || doc.name" :value="String(doc.id)" /></el-select><p class="helper-text">将当前 PDF 与第二份 PDF 按顺序合并为一个文件。</p></template></div>
+          <div v-else-if="selectedTool.id === 'convert'" class="setting-block"><label>导出格式</label><el-radio-group v-model="exportFormat" class="preset-group"><el-radio-button label="txt">TXT</el-radio-button><el-radio-button label="md">Markdown</el-radio-button><el-radio-button label="pdf">PDF</el-radio-button><el-radio-button label="docx">Word</el-radio-button></el-radio-group><p class="helper-text">TXT 与 Markdown 可直接在浏览器生成下载；Word、PDF 转换需要后端文件转换服务。</p></div>
           <div v-else-if="selectedTool.id === 'ppt'" class="setting-block"><label>PPT 主题</label><el-select v-model="pptTheme" class="document-select"><el-option label="莫兰迪浅色" value="morandi" /><el-option label="商务蓝" value="business" /><el-option label="极简白" value="minimal" /></el-select><p class="helper-text">调用现有 HTML PPT Skill，根据正文提炼演示大纲。</p></div>
           <div v-else-if="selectedTool.mode === 'planned'" class="planned-state"><span class="planned-icon"><el-icon><Timer /></el-icon></span><strong>文件处理服务待接入</strong><p>当前项目尚未提供 {{ selectedTool.name }} 的后端处理接口。已保留统一入口与文件上下文，接入 OCR / PDF / 表格服务后即可启用。</p></div>
           <div v-else class="setting-block"><label>处理范围</label><div class="scope-card"><el-icon><DocumentChecked /></el-icon><span>{{ selectedDocumentId ? '当前选中文档（可保存为新版本）' : '当前文本草稿（不会自动覆盖文档）' }}</span></div><p class="helper-text">{{ selectedTool.tip }}</p></div>
-          <el-button class="run-button" type="primary" :loading="running" :disabled="selectedTool.mode === 'planned' || (!workingContent && !['ocr', 'pdf', 'table'].includes(selectedTool.id))" @click="runTool"><el-icon><MagicStick /></el-icon>{{ selectedTool.mode === 'planned' ? '等待服务接入' : `执行${selectedTool.name}` }}</el-button>
+          <el-button class="run-button" type="primary" :loading="running" :disabled="selectedTool.mode === 'planned' || (!workingContent && !['ocr', 'pdf', 'table', 'convert'].includes(selectedTool.id))" @click="runTool"><el-icon><MagicStick /></el-icon>{{ selectedTool.mode === 'planned' ? '等待服务接入' : `执行${selectedTool.name}` }}</el-button>
         </template>
         <div v-else class="empty-operation"><el-icon :size="32"><Operation /></el-icon><p>从中间选择一个工具开始。</p></div>
         <div class="result-panel" v-if="result"><div class="result-heading"><span>处理结果</span><el-button text size="small" @click="result = ''">清除</el-button></div><pre>{{ result }}</pre><div class="result-actions" v-if="resultCanApply"><el-button size="small" @click="copyResult">复制结果</el-button><el-button size="small" type="primary" @click="applyResult">应用到编辑区</el-button></div></div>
@@ -58,7 +59,7 @@
     <AdvancedWorkspace :current-content="workingContent" @apply="value => workingContent = value" />
     </div>
 
-    <section class="capability-note"><el-icon><InfoFilled /></el-icon><span><strong>已可执行：</strong>智能清洗、排版预设、AI 校对、文档对比、摘要、关键词、敏感信息脱敏、TXT / Markdown 导出、HTML PPT 生成。<strong>服务待接入：</strong>OCR、PDF 拆分合并、Word/PDF 格式转换、表格提取 Excel。</span></section>
+    <section class="capability-note"><el-icon><InfoFilled /></el-icon><span><strong>已可执行：</strong>智能清洗、排版预设、AI 校对、文档对比、摘要、关键词、敏感信息脱敏、TXT / Markdown 导出、HTML PPT 生成。<strong>已接入：</strong>OCR、PDF 拆分合并、DOCX ↔ PDF 格式转换、Word 表格提取 Excel。</span></section>
   </div>
 </template>
 
@@ -81,6 +82,8 @@ const workingContent = ref('')
 const activeToolId = ref('clean')
 const formatPreset = ref('formal')
 const exportFormat = ref('txt')
+const pdfOperation = ref('split')
+const pdfPages = ref('')
 const pptTheme = ref('morandi')
 const result = ref('')
 const resultCanApply = ref(false)
@@ -102,7 +105,7 @@ const toolGroups = [
   ]},
   { name: '安全与交付', color: '#EDF4E2', items: [
     { id: 'mask', name: '敏感信息脱敏', description: '手机号、邮箱、身份证', detail: '在浏览器本地对常见手机号、邮箱和身份证号进行掩码处理，便于安全分享。', tip: '仅处理常见规则，不代替企业级数据安全审查。', icon: 'Lock', color: '#6D8A64', tint: '#EAF2E5' },
-    { id: 'convert', name: '格式导出', description: 'TXT / Markdown 下载', detail: '将当前文本导出为通用的 TXT 或 Markdown 文件。', tip: '直接下载不上传内容；其他格式转换待后端文件服务接入。', icon: 'Download', color: '#6D8A64', tint: '#EAF2E5' },
+    { id: 'convert', name: '格式导出', description: 'TXT / Markdown / PDF / Word', detail: '将当前文本导出为通用的 TXT 或 Markdown 文件。', tip: '直接下载不上传内容；其他格式转换待后端文件服务接入。', icon: 'Download', color: '#6D8A64', tint: '#EAF2E5' },
     { id: 'pdf', name: 'PDF 工具', description: '拆分、合并与提取页面', detail: '选择页码可拆分 PDF；另选一份文档则合并两份 PDF。', tip: '任务由 RabbitMQ 异步执行，完成后直接下载。', icon: 'Files', color: '#6D8A64', tint: '#EAF2E5' },
     { id: 'ocr', name: 'OCR 识别', description: '图片转可编辑文本', detail: '识别已上传图片中的中英文文字，并生成 TXT 结果。', tip: '任务完成后可下载识别文本。', icon: 'Picture', color: '#6D8A64', tint: '#EAF2E5' },
     { id: 'table', name: '表格提取', description: 'Word 表格导出 Excel', detail: '提取 DOCX 文档内的表格，生成可编辑 Excel 文件。', tip: '任务完成后可下载 XLSX 文件。', icon: 'Grid', color: '#6D8A64', tint: '#EAF2E5' }
@@ -199,25 +202,40 @@ function downloadText(content, extension) {
 }
 
 async function runFileJob(toolType) {
-  if (!selectedDocumentId.value) { ElMessage.warning('请先选择已上传的原始文件'); return }
+  if (!selectedDocumentId.value) { ElMessage.warning('请先选择已上传的源文件'); return }
   const ids = [selectedDocumentId.value]
-  if (toolType === 'PDF_MERGE') { if (!compareDocumentId.value) { ElMessage.warning('请选择第二份 PDF 文档'); return }; ids.push(compareDocumentId.value) }
-  const submitted = responseData(await docApi.submitToolboxJob({ toolType, documentIds: ids, pages: toolType === 'PDF_SPLIT' ? compareDocumentId.value : undefined }))
+  if (toolType === 'PDF_MERGE') {
+    if (!compareDocumentId.value) { ElMessage.warning('请选择第二份 PDF 文档'); return }
+    ids.push(compareDocumentId.value)
+  }
+  const submitted = responseData(await docApi.submitToolboxJob({ toolType, documentIds: ids, pages: toolType === 'PDF_SPLIT' ? pdfPages.value : undefined }))
   result.value = '任务已进入队列，正在处理…'; resultCanApply.value = false
-  for (let i = 0; i < 90; i++) { await new Promise(resolve => setTimeout(resolve, 1200)); const job = responseData(await docApi.getToolboxJob(submitted.jobId)); result.value = `${job.message}\n\n当前进度：${job.progress}%`; if (job.status === 'SUCCESS') { const blob = await docApi.downloadToolboxJob(job.jobId); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = job.fileName; link.click(); URL.revokeObjectURL(url); result.value += '\n\n结果文件已开始下载。'; return } if (job.status === 'FAILED') throw new Error(job.message) }
+  for (let index = 0; index < 90; index++) {
+    await new Promise(resolve => setTimeout(resolve, 1200))
+    const job = responseData(await docApi.getToolboxJob(submitted.jobId))
+    result.value = `${job.message}\n\n当前进度：${job.progress}%`
+    if (job.status === 'SUCCESS') {
+      const blob = await docApi.downloadToolboxJob(job.jobId)
+      const url = URL.createObjectURL(blob); const link = document.createElement('a')
+      link.href = url; link.download = job.fileName; link.click(); URL.revokeObjectURL(url)
+      result.value += '\n\n结果文件已开始下载。'
+      return
+    }
+    if (job.status === 'FAILED') throw new Error(job.message)
+  }
   throw new Error('任务处理超时，请稍后重试')
-}
-async function runTool() {
+}async function runTool() {
   const tool = selectedTool.value
-  const fileTool = ['ocr', 'pdf', 'table'].includes(tool?.id)
-  if (!tool || (!workingContent.value.trim() && !(fileTool && selectedDocumentId.value))) { ElMessage.warning('请先选择文档或输入待处理文本'); return }
+  const fileTool = ['ocr', 'pdf', 'table', 'convert'].includes(tool?.id)
+  if (!tool || (!workingContent.value.trim() && !(fileTool && selectedDocumentId.value))) {
+    ElMessage.warning('请先选择文档或输入待处理文本'); return
+  }
   running.value = true; result.value = ''; resultCanApply.value = false
   try {
     if (tool.id === 'ocr') { await runFileJob('OCR') }
     else if (tool.id === 'table') { await runFileJob('WORD_TABLE_EXCEL') }
-    else if (tool.id === 'pdf') { await runFileJob(compareDocumentId.value ? 'PDF_MERGE' : 'PDF_SPLIT') }
-    else if (tool.id === 'mindmap') { const prompt = `请基于以下内容输出 Mermaid mindmap 代码，只输出代码：
-`; const data = responseData(await aiApi.executeAgent({ task: prompt, context: { source: 'toolbox-mindmap' } })); result.value = data.finalAnswer || data.answer || data.content || JSON.stringify(data) }
+    else if (tool.id === 'pdf') { await runFileJob(pdfOperation.value === 'merge' ? 'PDF_MERGE' : 'PDF_SPLIT') }
+    else if (tool.id === 'mindmap') { const prompt = `请基于以下内容输出 Mermaid mindmap 代码，只输出代码：\n\n${workingContent.value}`; const data = responseData(await aiApi.executeAgent({ task: prompt, context: { source: 'toolbox-mindmap' } })); result.value = data.finalAnswer || data.answer || data.content || JSON.stringify(data) }
     else if (tool.id === 'clean') { result.value = normalizeText(workingContent.value); resultCanApply.value = true }
     else if (tool.id === 'format') { result.value = applyFormat(workingContent.value); resultCanApply.value = true }
     else if (tool.id === 'mask') { result.value = maskSensitive(workingContent.value); resultCanApply.value = true }
@@ -232,8 +250,24 @@ async function runTool() {
     } else if (tool.id === 'proofread') {
       const prompt = `请对以下文本进行中文校对。只输出校对后的完整文本，不要解释，不要改变原意：\n\n${workingContent.value}`
       const data = responseData(await aiApi.executeAgent({ task: prompt, context: { source: 'document-toolbox', action: 'proofread' } })); result.value = data.finalAnswer || data.answer || data.content || (typeof data === 'string' ? data : JSON.stringify(data)); resultCanApply.value = true
-    } else if (tool.id === 'convert') { downloadText(workingContent.value, exportFormat.value); result.value = `已生成 ${exportFormat.value.toUpperCase()} 文件并开始下载。\n\n浏览器未上传文本内容；如需 Word / PDF 格式转换，请在后端接入文档转换服务后启用。` }
-    else if (tool.id === 'ppt') {
+    } else if (tool.id === 'convert') {
+      if (exportFormat.value === 'txt' || exportFormat.value === 'md') {
+        if (!workingContent.value.trim()) { ElMessage.warning('TXT 或 Markdown 导出需要可编辑的文档正文'); return }
+        downloadText(workingContent.value, exportFormat.value)
+        result.value = `已生成 ${exportFormat.value.toUpperCase()} 文件并开始下载。`
+      } else {
+        const source = documents.value.find(doc => String(doc.id) === selectedDocumentId.value)
+        const sourceName = documentTitle(source).toLowerCase()
+        if (exportFormat.value === 'pdf') {
+          if (!sourceName.endsWith('.docx')) throw new Error('PDF 导出目前请选 DOCX 文件')
+          await runFileJob('DOCX_TO_PDF')
+        } else {
+          if (!sourceName.endsWith('.pdf')) throw new Error('Word 导出目前请选 PDF 文件')
+          await runFileJob('PDF_TO_DOCX')
+          result.value += '\n\n提示：PDF 转 Word 提取可编辑正文，不保证保留原始版式。'
+        }
+      }
+    } else if (tool.id === 'ppt') {
       const title = documentTitle(documents.value.find(doc => String(doc.id) === selectedDocumentId.value))
       const html = await aiApi.previewPpt({ outline: workingContent.value.slice(0, 12000), theme: pptTheme.value, title, model: 'deepseek-chat' })
       const popup = window.open('', '_blank'); if (popup) { popup.document.write(html); popup.document.close(); result.value = '演示稿已在新标签页打开。' } else { throw new Error('浏览器拦截了新窗口，请允许弹窗后重试') }
@@ -241,7 +275,6 @@ async function runTool() {
     incrementOperation(); ElMessage.success(`${tool.name}已完成`)
   } catch (error) { ElMessage.error(error?.message || `${tool.name}执行失败，请稍后重试`) } finally { running.value = false }
 }
-
 async function copyResult() { try { await navigator.clipboard.writeText(result.value); ElMessage.success('处理结果已复制') } catch (error) { ElMessage.warning('复制失败，请手动复制') } }
 function applyResult() { workingContent.value = result.value; resultCanApply.value = false; ElMessage.success('已应用到编辑区，确认后可保存为新版本') }
 
