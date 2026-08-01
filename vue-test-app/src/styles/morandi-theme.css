@@ -243,6 +243,20 @@ body,
   color: var(--sd-lavender-deep) !important;
 }
 
+.feishu-layout .send-action-btn {
+  background: #74698e !important;
+  color: #fff !important;
+  box-shadow: 0 6px 14px rgba(116, 105, 142, 0.3) !important;
+}
+.feishu-layout .send-action-btn .el-icon,
+.feishu-layout .send-action-btn svg {
+  color: #fff !important;
+  fill: currentColor;
+}
+.feishu-layout .send-action-btn:hover {
+  background: #615778 !important;
+  box-shadow: 0 0 0 4px rgba(172, 160, 206, 0.28), 0 7px 16px rgba(116, 105, 142, 0.32) !important;
+}
 @media (max-width: 900px) {
   .feishu-layout .feishu-aside { width: 80px !important; }
   .feishu-layout .brand-text,

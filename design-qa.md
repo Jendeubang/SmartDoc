@@ -25,6 +25,9 @@ The reference is a palette card rather than a complete app screen. The review th
   - Fix: replaced Vite's global text replacement with an early `window.global = window` shim in `index.html`.
   - Post-fix evidence: browser DOM contains `.preview-shell`; production build completes successfully; no console runtime error remains.
 
+- [Resolved P2] The task sender arrow could lose contrast against the muted purple button.
+  - Fix: the sender now uses a solid `#74698E` background, forced white icon color, a 42 px hit target and visible hover/focus ring.
+  - Post-fix evidence: browser computed styles report button background `rgb(116, 105, 142)`, button text `rgb(255, 255, 255)` and icon `rgb(255, 255, 255)`.
 No actionable P0/P1/P2 visual issues remain for this palette preview.
 
 ## Required fidelity surfaces
