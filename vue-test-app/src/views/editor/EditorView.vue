@@ -98,13 +98,17 @@
       <div class="chat-input-container">
         <div class="input-wrapper-inner" :class="{ 'is-focused': isInputFocused, 'rag-active': isRagMode }">
           <!-- 模式切换：气泡/书本图标 -->
-          <el-tooltip :content="isRagMode ? '当前：基于云端文档库问答' : '当前：普通对话模式'" placement="top">
-            <el-icon class="mode-icon" @click="isRagMode = !isRagMode">
-              <Collection v-if="isRagMode" /><ChatDotRound v-else />
-            </el-icon>
+          <el-tooltip :content="isRagMode ? '已开启：基于已索引文档回答' : '点击后：基于已索引文档回答'" placement="top">
+            <button class="rag-mode-toggle" :class="{ active: isRagMode }" type="button" @click="isRagMode = !isRagMode">
+              <el-icon><Collection /></el-icon>
+              <span>基于文档回答</span>
+            </button>
           </el-tooltip>
 
-          <el-icon class="plus-icon"><Plus /></el-icon>
+          <button class="chat-attach-btn" type="button" aria-label="上传文档" title="上传文档" :disabled="chatUploadLoading" @click="openChatFilePicker">
+            <el-icon><Plus /></el-icon>
+          </button>
+          <input ref="chatFileInputRef" class="chat-file-input" type="file" accept=".pdf,.doc,.docx,.txt,.md,.ppt,.pptx,.xls,.xlsx" @change="onChatFileSelected" />
           <input
               v-model="userMsg"
               class="chat-input"
@@ -367,6 +371,7 @@ const docName = ref(sessionStorage.getItem('currentDocName') || '未命名文档
 const currentUserId = ref(localStorage.getItem('userId') || '')
 const docContent = ref(''); const docLoading = ref(false); const aiSummary = ref('')
 const userMsg = ref(''); const isAiThinking = ref(false); const chatHistory = ref([]); const currentConvId = ref('')
+const chatFileInputRef = ref(null); const chatUploadLoading = ref(false)
 const showAiBall = ref(false); const ballStyle = reactive({ top: '0px', left: '0px' }); const selectedText = ref('')
 const showHistory = ref(false); const versionList = ref([])
 const keywords = ref([]); const keywordsLoading = ref(false); const isRagMode = ref(false); const replaceOnWrite = ref(true)
@@ -502,7 +507,7 @@ const loadDocData = async () => {
     if (task) {
       chatTitle.value = task.length > 10 ? task.substring(0, 10) + '...' : task
       userMsg.value = task; sessionStorage.removeItem('global_ai_task'); setTimeout(() => handleSend(), 500)
-    } else { chatHistory.value.push({ role: 'ai', text: 'Hi！我是 DocAI 智能伙伴，今天需要我帮你完成什么工作？' }) }
+    } else { chatHistory.value.push({ role: 'ai', text: 'Hi！我是 SmartDoc 智能伙伴，今天需要我帮你完成什么工作？' }) }
     return
   }
 
@@ -608,6 +613,30 @@ const handleModelChange = () => {
 }
 
 // ===== 2. 交互逻辑 =====
+const openChatFilePicker = () => chatFileInputRef.value?.click()
+
+const onChatFileSelected = async (event) => {
+  const rawFile = event.target.files?.[0]
+  if (!rawFile) return
+
+  chatUploadLoading.value = true
+  try {
+    const fileRes = await fileApi.upload(rawFile)
+    const fileId = fileRes?.data?.fileId || fileRes?.data?.id
+    if (!fileId) throw new Error('File upload did not return a fileId')
+    await docApi.createDoc({ title: rawFile.name, fileId, category: 'default' })
+    chatHistory.value.push({ role: 'user', text: `已上传文档：${rawFile.name}` })
+    chatHistory.value.push({ role: 'ai', text: '文档已保存到云端文档库。开启“基于文档回答”后，可针对已完成索引的文档进行问答。' })
+    ElMessage.success(`「${rawFile.name}」已上传到云端文档库`)
+    isRagMode.value = true
+    scrollToBottom()
+  } catch (error) {
+    console.error('Chat file upload failed', error)
+  } finally {
+    chatUploadLoading.value = false
+    event.target.value = ''
+  }
+}
 const handleSend = async () => {
   if (!userMsg.value.trim() || isAiThinking.value) return
 
@@ -1567,4 +1596,40 @@ const scrollToBottom = () => { nextTick(() => {
 @media (max-width: 1180px) { .left-sidebar { width: 238px; } .expanded-ai { width: 330px !important; } .paper { padding: 68px 72px; } }
 @media (max-width: 900px) { .left-sidebar { display: none; } .expanded-ai { width: 310px !important; } .toolbar { padding: 0 16px; } .header-right .el-button:nth-child(2) { display: none; } }
 @media (max-width: 680px) { .expanded-ai { display: none; } .editor-main { padding: 18px 12px 32px; } .paper { min-height: calc(100vh - 100px); padding: 44px 26px; font-size: 15px; } .save-status { display: none; } }
+
+/* ==================== Morandi chat-mode refinement ==================== */
+.feishu-chat-layout { background: #f7f6f3; color: #413b4b; }
+.chat-sidebar { width: 272px; background: #fffdf9; border-right-color: #e8e0e8; }
+.sidebar-top { padding: 28px 20px; }
+.brand-back { color: #74698e; }
+.brand-back:hover { color: #615778; }
+.new-chat-btn { --el-button-bg-color: #f4f0f8; --el-button-border-color: #e0d7ea; --el-button-text-color: #74698e; --el-button-hover-bg-color: #eee8f5; --el-button-hover-text-color: #615778; --el-button-hover-border-color: #cfc3de; border-radius: 12px; height: 40px; }
+.group-title { color: #938a9b; letter-spacing: .08em; }
+.history-item { background: #f0ebf6; color: #74698e; border-radius: 12px; }
+.sidebar-bottom { border-top-color: #e8e0e8; }
+.user-profile .username { color: #413b4b; }
+.chat-main { background: #f7f6f3; }
+.chat-header { height: 68px; border-bottom-color: #e8e0e8; background: rgba(255,253,249,.92); }
+.chat-header .title { color: #413b4b; }
+.chat-scroll-area { padding-top: 48px; }
+.user-bubble { background: #74698e; border-radius: 17px 5px 17px 17px; box-shadow: 0 6px 16px rgba(116,105,142,.2); }
+.ai-structured-card { border-color: #e6dee7; border-radius: 5px 17px 17px 17px; background: #fffdf9; color: #413b4b; box-shadow: 0 7px 20px rgba(70,59,80,.05); }
+.ai-structured-card:hover { border-color: #aca0ce; box-shadow: 0 9px 22px rgba(116,105,142,.1); }
+.chat-input-container { padding-bottom: 30px; background: linear-gradient(to top, #f7f6f3 78%, rgba(247,246,243,0)); }
+.input-wrapper-inner { max-width: 860px; height: 68px; padding: 0 12px 0 16px; border-color: #e4dce7; border-radius: 20px; box-shadow: 0 8px 24px rgba(70,59,80,.07); }
+.input-wrapper-inner.is-focused, .input-wrapper-inner.rag-active { border-color: #aca0ce; box-shadow: 0 9px 28px rgba(116,105,142,.14); }
+.chat-input { margin-left: 16px; color: #413b4b; }
+.input-right { gap: 18px; margin-left: 14px; }
+.mic-icon { color: #9b92a2; }
+.send-btn-circle { background: #e7e0eb; color: #9b92a2; }
+.send-btn-circle.active { background: #74698e; color: #fff; }
+.ai-hint { color: #9b92a2; }
+.rag-mode-toggle { display: inline-flex; align-items: center; gap: 7px; min-width: 132px; height: 40px; padding: 0 13px; border: 1px solid #ddd4e5; border-radius: 12px; background: #f8f5fb; color: #74698e; font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; transition: .18s ease; }
+.rag-mode-toggle:hover, .rag-mode-toggle:focus-visible { border-color: #aca0ce; background: #f0ebf6; outline: none; }
+.rag-mode-toggle.active { border-color: #74698e; background: #74698e; color: #fff; box-shadow: 0 6px 14px rgba(116,105,142,.22); }
+.chat-attach-btn { display: grid; flex: 0 0 auto; place-items: center; width: 40px; height: 40px; margin-left: 16px; padding: 0; border: 1px solid #e3dce5; border-radius: 12px; background: #fffdf9; color: #74698e; cursor: pointer; transition: .18s ease; }
+.chat-attach-btn:hover, .chat-attach-btn:focus-visible { border-color: #aca0ce; background: #f0ebf6; color: #615778; outline: none; }
+.chat-attach-btn:disabled { cursor: wait; opacity: .6; }
+.chat-file-input { display: none; }
+@media (max-width: 760px) { .chat-sidebar { display: none; } .chat-input-container { padding: 16px; } .input-wrapper-inner { height: auto; min-height: 64px; border-radius: 16px; } .rag-mode-toggle { min-width: 40px; padding: 0 11px; } .rag-mode-toggle span { display: none; } .chat-attach-btn { margin-left: 10px; } .chat-input { margin-left: 10px; } }
 </style>
