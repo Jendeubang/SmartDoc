@@ -44,3 +44,19 @@ No actionable P0/P1/P2 visual issues remain for this palette preview.
 - [P3] Add a logo asset and a refined Chinese display font only after selecting a brand direction and confirming licensing.
 
 Final result: passed
+
+## Upload control update — 2026-08-02
+
+- Implementation: the left `+` control on `/morandi-preview` is now a keyboard-accessible file picker. It accepts PDF, Word, text/Markdown, PowerPoint and Excel formats, calls the existing `/files/upload` API, creates the corresponding document record, and shows the selected file name, size, and upload state.
+- Static verification: `npm.cmd run build` passed after the change.
+- Browser-rendered interaction verification: blocked in this run because no in-app Browser automation tool is exposed to capture the current upload-picker state or select a local file. This is intentionally not inferred from the successful build.
+
+Final result: blocked
+## Interaction implementation update — 2026-08-02
+
+- Backend-connected controls: document upload (`/files/upload` + document creation), Agent task submission (`/ai/async/agent/execute`), RAG question answering (`/ai/rag/query`), and navigation to the existing document library, Agent workbench and AIOps pages.
+- Frontend interaction controls: navigation state, task presets, notification read state, help dialog, document-row feedback and sign-out confirmation.
+- Static verification: `npm.cmd run build` passed after the interaction implementation.
+- Browser-rendered interaction verification: blocked because this run has no callable in-app browser automation capability for completing an authenticated upload, Agent request or RAG query and capturing the resulting state.
+
+Final result: blocked

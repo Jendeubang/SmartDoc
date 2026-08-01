@@ -8,80 +8,146 @@
         </div>
 
         <p class="preview-label">WORKSPACE</p>
-        <button v-for="item in navItems" :key="item.key" class="preview-nav" :class="{ active: activeNav === item.key }" @click="activeNav = item.key">
+        <button v-for="item in navItems" :key="item.key" class="preview-nav" :class="{ active: activeNav === item.key }" @click="handleNav(item.key)">
           <el-icon><component :is="item.icon" /></el-icon>
           <span>{{ item.label }}</span>
         </button>
       </div>
 
-      <div class="preview-user">
+      <div class="preview-user" role="button" tabindex="0" @click="handleUserMenu" @keyup.enter="handleUserMenu">
         <el-avatar :size="34">J</el-avatar>
-        <div><strong>Jendeubang</strong><span>个人工作区</span></div>
+        <div><strong>{{ currentUserName }}</strong><span>个人工作区</span></div>
         <el-icon><MoreFilled /></el-icon>
       </div>
     </aside>
 
     <main class="preview-main">
       <header class="preview-header">
-        <div><span class="preview-crumb">SmartDoc / {{ activeNavLabel }}</span><h1>{{ activeNav === 'library' ? '云端文档库' : '我的工作台' }}</h1></div>
-        <div class="preview-header-actions"><el-button text circle><el-icon><Bell /></el-icon></el-button><el-button round plain>帮助中心</el-button></div>
+        <div><span class="preview-crumb">SmartDoc / {{ activeNavLabel }}</span><h1>{{ pageTitle }}</h1></div>
+        <div class="preview-header-actions">
+          <el-button text circle aria-label="通知" @click="notificationsVisible = true"><el-icon><Bell /></el-icon></el-button>
+          <el-button round plain @click="helpVisible = true">帮助中心</el-button>
+        </div>
       </header>
 
-      <section v-if="activeNav !== 'library'" class="preview-hero">
+      <section v-if="activeNav === 'workbench'" class="preview-hero">
         <p class="eyebrow">SMART DOCUMENT WORKSPACE</p>
         <h2>今天想让 SmartDoc<br />帮你完成什么？</h2>
         <p class="hero-copy">上传文档、提取重点，或让 AI 为你规划下一步工作。</p>
         <div class="task-box">
-          <el-icon class="task-plus"><Plus /></el-icon>
-          <input v-model="task" placeholder="例如：总结这份项目周报，并提取风险事项" @keyup.enter="submitTask" />
-          <el-button class="task-send" circle @click="submitTask"><el-icon><Top /></el-icon></el-button>
+          <button class="task-attach" type="button" aria-label="上传文件" title="上传文件" @click="openFilePicker">
+            <el-icon><Plus /></el-icon>
+          </button>
+          <input ref="taskInput" v-model="task" placeholder="例如：总结这份项目周报，并提取风险事项" @keyup.enter="submitTask" />
+          <el-button class="task-send" circle :loading="submitting" aria-label="发送任务" @click="submitTask"><el-icon><Top /></el-icon></el-button>
+        </div>
+        <input ref="fileInput" class="hidden-file-input" type="file" accept=".pdf,.doc,.docx,.txt,.md,.ppt,.pptx,.xls,.xlsx" @change="onFileSelected" />
+        <div v-if="selectedFile" class="attachment-chip">
+          <el-icon><Document /></el-icon>
+          <span>{{ selectedFile.name }}</span>
+          <small>{{ formatFileSize(selectedFile.size) }}</small>
+          <span class="attachment-state">{{ uploading ? '上传中' : '已上传' }}</span>
         </div>
         <div class="prompt-row">
-          <button v-for="prompt in prompts" :key="prompt.label" @click="task = prompt.value"><el-icon><component :is="prompt.icon" /></el-icon>{{ prompt.label }}</button>
+          <button v-for="prompt in prompts" :key="prompt.key" @click="handlePrompt(prompt)"><el-icon><component :is="prompt.icon" /></el-icon>{{ prompt.label }}</button>
         </div>
       </section>
 
-      <section v-if="activeNav === 'library'" class="library-intro">
+      <section v-else-if="activeNav === 'library'" class="library-intro">
         <div><p class="eyebrow">DOCUMENT LIBRARY</p><h2>让每份文档都更有价值</h2><p>统一管理、智能提取，并随时回到你需要的内容。</p></div>
-        <el-button type="primary" round><el-icon><Upload /></el-icon>上传文档</el-button>
+        <el-button type="primary" round @click="openFilePicker"><el-icon><Upload /></el-icon>上传文档</el-button>
       </section>
 
-      <section class="stats-grid">
-        <article v-for="stat in stats" :key="stat.label" class="stat-item" :class="stat.tone">
-          <el-icon><component :is="stat.icon" /></el-icon>
-          <div><strong>{{ stat.value }}</strong><span>{{ stat.label }}</span></div>
-        </article>
+      <section v-else-if="activeNav === 'knowledge'" class="knowledge-surface">
+        <p class="eyebrow">RAG KNOWLEDGE BASE</p>
+        <h2>向你的知识库提问</h2>
+        <p class="hero-copy">使用混合检索与重排序，从已索引的个人文档中找到答案。</p>
+        <div class="knowledge-form">
+          <el-input v-model="ragQuestion" placeholder="例如：项目方案中有哪些风险事项？" clearable @keyup.enter="askKnowledge" />
+          <el-button type="primary" :loading="ragLoading" @click="askKnowledge">开始问答</el-button>
+        </div>
+        <div v-if="ragAnswer" class="knowledge-answer">{{ ragAnswer }}</div>
       </section>
 
-      <section class="content-grid">
-        <article class="surface docs-surface">
-          <div class="surface-title"><div><p class="eyebrow">RECENT DOCUMENTS</p><h3>最近文档</h3></div><el-button text>查看全部 <el-icon><ArrowRight /></el-icon></el-button></div>
-          <button v-for="doc in documents" :key="doc.name" class="doc-row">
-            <span class="doc-icon" :class="doc.color"><el-icon><Document /></el-icon></span>
-            <span class="doc-name"><strong>{{ doc.name }}</strong><small>{{ doc.meta }}</small></span>
-            <el-tag size="small" round :type="doc.status === '已分析' ? 'success' : 'info'">{{ doc.status }}</el-tag>
-            <el-icon class="row-arrow"><ArrowRight /></el-icon>
-          </button>
-        </article>
-
-        <article class="surface activity-surface">
-          <div class="surface-title"><div><p class="eyebrow">AI ACTIVITY</p><h3>AI 正在处理</h3></div><span class="live-dot">实时</span></div>
-          <div class="activity-item"><span class="activity-mark lavender"><el-icon><MagicStick /></el-icon></span><div><strong>{{ latestTask || '会议纪要提炼' }}</strong><small>正在生成结构化摘要</small><el-progress :percentage="68" :show-text="false" :stroke-width="6" /></div></div>
-          <div class="activity-item"><span class="activity-mark pink"><el-icon><Connection /></el-icon></span><div><strong>产品知识库</strong><small>已完成 24 / 26 份文档索引</small><el-progress :percentage="92" :show-text="false" :stroke-width="6" status="success" /></div></div>
-          <button class="timeline-link" @click="activeNav = 'agent'">查看 Agent 执行时间线 <el-icon><ArrowRight /></el-icon></button>
-        </article>
+      <section v-else-if="activeNav === 'agent'" class="feature-surface">
+        <div><p class="eyebrow">AI AGENT</p><h2>复杂任务交给 Agent 处理</h2><p>进入工作台可查看计划、工具调用、审批和执行时间线。</p></div>
+        <el-button type="primary" round @click="goToAgentWorkbench">打开 Agent 工作台</el-button>
       </section>
+
+      <section v-else-if="activeNav === 'aiops'" class="feature-surface">
+        <div><p class="eyebrow">AI OPS</p><h2>运行状态与健康监控</h2><p>查看服务指标、健康检查和故障记录。该功能仅对管理员开放。</p></div>
+        <el-button type="primary" round @click="goToAIOps">打开运维中心</el-button>
+      </section>
+
+      <template v-if="activeNav === 'workbench' || activeNav === 'library'">
+        <section class="stats-grid">
+          <article v-for="stat in stats" :key="stat.label" class="stat-item" :class="stat.tone" role="button" tabindex="0" @click="handleStatClick(stat)" @keyup.enter="handleStatClick(stat)">
+            <el-icon><component :is="stat.icon" /></el-icon>
+            <div><strong>{{ stat.value }}</strong><span>{{ stat.label }}</span></div>
+          </article>
+        </section>
+
+        <section class="content-grid">
+          <article class="surface docs-surface">
+            <div class="surface-title"><div><p class="eyebrow">RECENT DOCUMENTS</p><h3>最近文档</h3></div><el-button text @click="goToDocuments">查看全部 <el-icon><ArrowRight /></el-icon></el-button></div>
+            <button v-for="doc in documents" :key="doc.name" class="doc-row" @click="handleDocumentOpen(doc)">
+              <span class="doc-icon" :class="doc.color"><el-icon><Document /></el-icon></span>
+              <span class="doc-name"><strong>{{ doc.name }}</strong><small>{{ doc.meta }}</small></span>
+              <el-tag size="small" round :type="doc.status === '已分析' ? 'success' : 'info'">{{ doc.status }}</el-tag>
+              <el-icon class="row-arrow"><ArrowRight /></el-icon>
+            </button>
+          </article>
+
+          <article class="surface activity-surface">
+            <div class="surface-title"><div><p class="eyebrow">AI ACTIVITY</p><h3>AI 正在处理</h3></div><span class="live-dot">实时</span></div>
+            <div class="activity-item"><span class="activity-mark lavender"><el-icon><MagicStick /></el-icon></span><div><strong>{{ latestTask || '会议纪要提炼' }}</strong><small>正在生成结构化摘要</small><el-progress :percentage="68" :show-text="false" :stroke-width="6" /></div></div>
+            <div class="activity-item"><span class="activity-mark pink"><el-icon><Connection /></el-icon></span><div><strong>产品知识库</strong><small>已完成 24 / 26 份文档索引</small><el-progress :percentage="92" :show-text="false" :stroke-width="6" status="success" /></div></div>
+            <button class="timeline-link" @click="goToAgentWorkbench">查看 Agent 执行时间线<el-icon><ArrowRight /></el-icon></button>
+          </article>
+        </section>
+      </template>
     </main>
+
+    <el-dialog v-model="notificationsVisible" title="通知" width="420px">
+      <div v-for="item in notifications" :key="item.title" class="notification-item" :class="{ unread: !item.read }"><el-icon><Bell /></el-icon><div><strong>{{ item.title }}</strong><span>{{ item.content }}</span></div></div>
+      <template #footer><el-button @click="markNotificationsRead">全部标为已读</el-button></template>
+    </el-dialog>
+
+    <el-dialog v-model="helpVisible" title="SmartDoc 使用帮助" width="460px">
+      <p>1. 点击 “+” 上传文档，系统会保存到文档库。</p>
+      <p>2. 在输入框中描述任务，Agent 会调用已配置的工具完成处理。</p>
+      <p>3. 在“知识库”中可对已索引的文档进行 RAG 问答。</p>
+      <p>提示：使用真实服务前需要先登录。</p>
+    </el-dialog>
   </div>
 </template>
-
 <script setup>
-import { computed, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { computed, nextTick, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRouter } from 'vue-router'
+import { STORAGE_KEYS } from '../../constants'
+import { aiApi } from '../../api/ai'
+import { fileApi } from '../../api/file'
+import { docApi } from '../../api/document'
 
+const router = useRouter()
 const activeNav = ref('workbench')
 const task = ref('')
 const latestTask = ref('')
+const taskInput = ref(null)
+const fileInput = ref(null)
+const selectedFile = ref(null)
+const uploading = ref(false)
+const submitting = ref(false)
+const notificationsVisible = ref(false)
+const helpVisible = ref(false)
+const ragQuestion = ref('')
+const ragAnswer = ref('')
+const ragLoading = ref(false)
+const notifications = ref([
+  { title: '文档索引已完成', content: 'RAG 知识库方案评审纪要已可用于问答。', read: false },
+  { title: 'Agent 任务可查看', content: '你可以在 Agent 工作台查看最近的执行时间线。', read: false }
+])
 
 const navItems = [
   { key: 'workbench', label: '我的工作台', icon: 'Monitor' },
@@ -92,16 +158,16 @@ const navItems = [
 ]
 
 const prompts = [
-  { label: '上传文档', value: '上传一份文档并提取重点', icon: 'Upload' },
-  { label: '生成 PPT', value: '根据文档生成一份项目汇报 PPT', icon: 'Monitor' },
-  { label: '开始对话', value: '基于我的知识库回答问题', icon: 'ChatLineSquare' }
+  { key: 'upload', label: '上传文档', icon: 'Upload' },
+  { key: 'ppt', label: '生成 PPT', value: '根据已上传文档生成一份项目汇报 PPT', icon: 'Monitor' },
+  { key: 'chat', label: '开始对话', value: '基于我的知识库回答问题', icon: 'ChatLineSquare' }
 ]
 
 const stats = [
-  { label: '云端文档', value: '128', icon: 'Document', tone: 'lavender' },
-  { label: 'AI 已分析', value: '86', icon: 'MagicStick', tone: 'green' },
-  { label: '待处理任务', value: '07', icon: 'Clock', tone: 'pink' },
-  { label: '知识库', value: '12', icon: 'Collection', tone: 'sand' }
+  { key: 'documents', label: '云端文档', value: '128', icon: 'Document', tone: 'lavender' },
+  { key: 'agent', label: 'AI 已分析', value: '86', icon: 'MagicStick', tone: 'green' },
+  { key: 'tasks', label: '待处理任务', value: '07', icon: 'Clock', tone: 'pink' },
+  { key: 'knowledge', label: '知识库', value: '12', icon: 'Collection', tone: 'sand' }
 ]
 
 const documents = [
@@ -111,15 +177,150 @@ const documents = [
 ]
 
 const activeNavLabel = computed(() => navItems.find(item => item.key === activeNav.value)?.label || '我的工作台')
+const pageTitle = computed(() => ({ workbench: '我的工作台', library: '云端文档库', agent: 'AI Agent', knowledge: '知识库问答', aiops: '运行监控' }[activeNav.value] || '我的工作台'))
+const currentUserName = computed(() => {
+  try {
+    const user = JSON.parse(localStorage.getItem(STORAGE_KEYS.USER_INFO) || '{}')
+    return user.username || user.nickname || user.name || 'Jendeubang'
+  } catch {
+    return 'Jendeubang'
+  }
+})
 
-function submitTask() {
-  if (!task.value.trim()) return
-  latestTask.value = task.value.trim()
-  task.value = ''
-  ElMessage.success('已创建 AI 任务（预览模式）')
+function ensureLogin() {
+  if (localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN)) return true
+  ElMessage.warning('请先登录后再使用真实服务')
+  router.push('/login')
+  return false
+}
+
+function handleNav(key) {
+  activeNav.value = key
+  if (key === 'knowledge') nextTick(() => document.querySelector('.knowledge-form input')?.focus())
+}
+
+function handlePrompt(prompt) {
+  if (prompt.key === 'upload') return openFilePicker()
+  task.value = prompt.value
+  nextTick(() => taskInput.value?.focus())
+}
+
+async function submitTask() {
+  const content = task.value.trim()
+  if (!content || !ensureLogin()) return
+
+  submitting.value = true
+  latestTask.value = content
+  try {
+    const response = await aiApi.executeAgent({ task: content, context: {} })
+    const result = response?.data || response || {}
+    latestTask.value = result.finalAnswer || result.answer || result.message || content
+    task.value = ''
+    ElMessage.success('Agent 任务已完成')
+  } catch (error) {
+    latestTask.value = content
+    console.error('Agent task failed', error)
+  } finally {
+    submitting.value = false
+  }
+}
+
+function openFilePicker() {
+  if (!ensureLogin()) return
+  fileInput.value?.click()
+}
+
+async function onFileSelected(event) {
+  const rawFile = event.target.files?.[0]
+  if (!rawFile) return
+
+  selectedFile.value = rawFile
+  uploading.value = true
+  try {
+    const fileRes = await fileApi.upload(rawFile)
+    const fileId = fileRes?.data?.fileId || fileRes?.data?.id
+    if (!fileId) throw new Error('File upload did not return a fileId')
+
+    await docApi.createDoc({ title: rawFile.name, fileId, category: 'default' })
+    latestTask.value = `已上传「${rawFile.name}」，可以继续告诉 AI 你想如何处理它。`
+    notifications.value.unshift({ title: '文档上传成功', content: `「${rawFile.name}」已保存到云端文档库。`, read: false })
+    ElMessage.success(`「${rawFile.name}」已上传到云端文档库`)
+  } catch (error) {
+    selectedFile.value = null
+    console.error('File upload failed', error)
+  } finally {
+    uploading.value = false
+    event.target.value = ''
+  }
+}
+
+async function askKnowledge() {
+  const question = ragQuestion.value.trim()
+  if (!question || !ensureLogin()) return
+
+  ragLoading.value = true
+  ragAnswer.value = ''
+  try {
+    const response = await aiApi.ragQuery(question)
+    const result = response?.data || response || {}
+    ragAnswer.value = result.answer || '知识库中暂未找到可用答案。'
+  } catch (error) {
+    console.error('RAG query failed', error)
+  } finally {
+    ragLoading.value = false
+  }
+}
+
+function handleStatClick(stat) {
+  if (stat.key === 'documents') return handleNav('library')
+  if (stat.key === 'knowledge') return handleNav('knowledge')
+  if (stat.key === 'agent' || stat.key === 'tasks') return goToAgentWorkbench()
+}
+
+function handleDocumentOpen(doc) {
+  if (doc.id) return router.push(`/editor/${doc.id}`)
+  ElMessage.info('示例文档将在云端文档库中打开')
+  goToDocuments()
+}
+
+function goToDocuments() {
+  router.push('/dashboard')
+}
+
+function goToAgentWorkbench() {
+  router.push('/agent-workbench')
+}
+
+function goToAIOps() {
+  router.push('/aiops')
+}
+
+function markNotificationsRead() {
+  notifications.value = notifications.value.map(item => ({ ...item, read: true }))
+  ElMessage.success('通知已全部标为已读')
+}
+
+async function handleUserMenu() {
+  if (!localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN)) {
+    router.push('/login')
+    return
+  }
+  try {
+    await ElMessageBox.confirm('确定要退出当前账号吗？', '退出登录', { confirmButtonText: '退出', cancelButtonText: '取消', type: 'warning' })
+    localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN)
+    localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN)
+    localStorage.removeItem(STORAGE_KEYS.USER_INFO)
+    router.push('/login')
+  } catch {
+    // User cancelled the dialog.
+  }
+}
+
+function formatFileSize(size) {
+  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`
+  return `${(size / 1024 / 1024).toFixed(1)} MB`
 }
 </script>
-
 <style scoped>
 .preview-shell { min-height: 100vh; display: grid; grid-template-columns: 238px minmax(0, 1fr); background: var(--sd-bg); color: var(--sd-text); }
 .preview-aside { min-height: 100vh; display: flex; flex-direction: column; justify-content: space-between; padding: 28px 16px 18px; background: rgba(255, 253, 249, .92); border-right: 1px solid var(--sd-border); }
@@ -159,4 +360,31 @@ function submitTask() {
 .task-send :deep(.el-icon svg) {
   color: #fff !important;
   fill: currentColor;
-}</style>
+}
+.task-box { padding-left: 12px; }
+.task-attach { display: grid; flex: 0 0 auto; place-items: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 10px; background: transparent; color: var(--sd-lavender-deep); cursor: pointer; transition: .18s ease; }
+.task-attach:hover, .task-attach:focus-visible { background: #eee8f5; color: #615778; outline: none; }
+.task-attach .el-icon { font-size: 20px; }
+.hidden-file-input { display: none; }
+.attachment-chip { display: flex; align-items: center; gap: 7px; width: max-content; max-width: 100%; margin-top: 10px; padding: 7px 10px; border: 1px solid #e1d8e7; border-radius: 10px; background: #f7f3fb; color: var(--sd-lavender-deep); font-size: 12px; }
+.attachment-chip > span:not(.attachment-state) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attachment-chip small { flex: 0 0 auto; color: var(--sd-text-muted); }
+.attachment-state { flex: 0 0 auto; color: #638570; }
+
+.preview-user { cursor: pointer; }
+.preview-user:focus-visible { outline: 3px solid rgba(172,160,206,.45); outline-offset: 2px; }
+.stat-item { cursor: pointer; transition: transform .18s ease, box-shadow .18s ease; }
+.stat-item:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(78,65,92,.08); }
+.knowledge-surface, .feature-surface { max-width: 1280px; margin: 0 auto 22px; padding: 32px; border: 1px solid var(--sd-border); border-radius: 24px; background: #fffdf9; box-shadow: var(--sd-shadow); }
+.knowledge-form { display: flex; gap: 10px; margin-top: 22px; }
+.knowledge-form .el-input { flex: 1; }
+.knowledge-answer { margin-top: 18px; padding: 18px; border: 1px solid #e1d8e7; border-radius: 16px; background: #f7f3fb; color: var(--sd-text); line-height: 1.75; white-space: pre-wrap; }
+.feature-surface { display: flex; align-items: center; justify-content: space-between; gap: 28px; }
+.feature-surface h2 { margin: 8px 0; font-size: 28px; }
+.feature-surface p:not(.eyebrow) { margin: 0; color: var(--sd-text-muted); }
+.notification-item { display: flex; gap: 10px; padding: 13px 0; border-bottom: 1px solid var(--sd-border); }
+.notification-item:last-child { border-bottom: 0; }
+.notification-item.unread strong::after { content: ''; display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: #84789f; vertical-align: middle; }
+.notification-item span { display: block; margin-top: 3px; color: var(--sd-text-muted); font-size: 12px; }
+@media (max-width: 640px) { .knowledge-surface, .feature-surface { padding: 24px 20px; } .knowledge-form { flex-direction: column; } .feature-surface { align-items: flex-start; flex-direction: column; gap: 18px; } }
+</style>
