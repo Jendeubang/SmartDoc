@@ -225,8 +225,10 @@ public class DocumentParserUtil {
             }
             
             ITesseract tesseract = new Tesseract();
-            // 设置Tesseract数据路径（可选，如果Tesseract已安装到系统路径可以不设置）
-            // tesseract.setDatapath("path/to/tessdata");
+            String tessdataPath = System.getenv("TESSDATA_PREFIX");
+            if (tessdataPath != null && !tessdataPath.isBlank()) {
+                tesseract.setDatapath(tessdataPath);
+            }
             
             // 设置识别语言（英文+简体中文）
             tesseract.setLanguage("eng+chi_sim");
