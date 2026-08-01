@@ -11,6 +11,7 @@
           <div class="nav-menu">
             <div class="nav-item" :class="{ active: !showDocLibrary }" @click="goToWorkbench"><el-icon><Monitor /></el-icon> 我的工作台</div>
             <div class="nav-item" :class="{ active: showDocLibrary }" @click="goToDocLibrary"><el-icon><FolderOpened /></el-icon> 云端文档库</div>
+            <div class="nav-item ai-chat-nav" @click="goToAiChat"><el-icon><ChatLineSquare /></el-icon> SmartDoc AI 对话</div>
             <div v-if="isAdminUser" class="nav-item aiops-nav" @click="goToAIOps">
               <el-icon><Cpu /></el-icon> AI Ops 运维中心
             </div>
@@ -78,8 +79,8 @@
                   <div class="menu-item" @click="triggerUpload">
                     <el-icon><Paperclip /></el-icon> 上传文件并由 AI 解析
                   </div>
-                  <div class="menu-item" @click="mockSkill('写会议纪要')"><el-icon><Document /></el-icon> 编写会议纪要</div>
-                  <div class="menu-item" @click="mockSkill('分析文档')"><el-icon><DataLine /></el-icon> 提取核心数据</div>
+
+
                 </div>
               </div>
             </el-popover>
@@ -88,7 +89,7 @@
             <div class="quick-prompts">
               <div class="prompt-pill" @click="triggerUpload"><el-icon><Upload /></el-icon> 上传文档</div>
               <div class="prompt-pill" @click="pptDialogVisible = true"><el-icon><Monitor /></el-icon> 一键生成 PPT</div>
-              <div class="prompt-pill" @click="mockSkill('对话')"><el-icon><ChatLineSquare /></el-icon> 开启对话</div>
+              <div class="prompt-pill" @click="goToAiChat"><el-icon><ChatLineSquare /></el-icon> 开启对话</div>
             </div>
           </div>
 
@@ -593,10 +594,6 @@ const handleAiTask = () => {
   router.push('/editor/chat-mode')
 }
 
-const mockSkill = (name) => {
-  aiTask.value = name
-  handleAiTask()
-}
 
 const handleUserCommand = (cmd) => {
   if (cmd === 'logout') { localStorage.clear(); router.push('/login'); }
@@ -604,6 +601,10 @@ const handleUserCommand = (cmd) => {
 
 const goToDocLibrary = () => {
   showDocLibrary.value = true
+}
+const goToAiChat = () => {
+  sessionStorage.removeItem('global_ai_task')
+  router.push('/editor/chat-mode')
 }
 
 const goToWorkbench = () => {
@@ -629,6 +630,8 @@ const goToAIOps = () => {
 .nav-item.active { background: #eef3ff; color: #3370ff; font-weight: 500; }
 .nav-item.aiops-nav { color: #e6a23c; }
 .nav-item.aiops-nav:hover { background: #fdf6ec; color: #e6a23c; }
+.nav-item.ai-chat-nav { color: #74698e; }
+.nav-item.ai-chat-nav:hover { background: #f1edf7; color: #615778; }
 
 .aside-bottom { padding: 16px; border-top: 1px solid #dee0e3; }
 .user-profile { display: flex; align-items: center; gap: 10px; padding: 8px; cursor: pointer; border-radius: 8px; transition: 0.2s; }
