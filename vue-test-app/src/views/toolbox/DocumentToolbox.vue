@@ -47,7 +47,7 @@
           <div v-else-if="selectedTool.id === 'ppt'" class="setting-block"><label>PPT 主题</label><el-select v-model="pptTheme" class="document-select"><el-option label="莫兰迪浅色" value="morandi" /><el-option label="商务蓝" value="business" /><el-option label="极简白" value="minimal" /></el-select><p class="helper-text">调用现有 HTML PPT Skill，根据正文提炼演示大纲。</p></div>
           <div v-else-if="selectedTool.mode === 'planned'" class="planned-state"><span class="planned-icon"><el-icon><Timer /></el-icon></span><strong>文件处理服务待接入</strong><p>当前项目尚未提供 {{ selectedTool.name }} 的后端处理接口。已保留统一入口与文件上下文，接入 OCR / PDF / 表格服务后即可启用。</p></div>
           <div v-else class="setting-block"><label>处理范围</label><div class="scope-card"><el-icon><DocumentChecked /></el-icon><span>{{ selectedDocumentId ? '当前选中文档（可保存为新版本）' : '当前文本草稿（不会自动覆盖文档）' }}</span></div><p class="helper-text">{{ selectedTool.tip }}</p></div>
-          <el-button class="run-button" type="primary" :loading="running" :disabled="selectedTool.mode === 'planned' || !workingContent" @click="runTool"><el-icon><MagicStick /></el-icon>{{ selectedTool.mode === 'planned' ? '等待服务接入' : `执行${selectedTool.name}` }}</el-button>
+          <el-button class="run-button" type="primary" :loading="running" :disabled="selectedTool.mode === 'planned' || (!workingContent && !['ocr', 'pdf', 'table'].includes(selectedTool.id))" @click="runTool"><el-icon><MagicStick /></el-icon>{{ selectedTool.mode === 'planned' ? '等待服务接入' : `执行${selectedTool.name}` }}</el-button>
         </template>
         <div v-else class="empty-operation"><el-icon :size="32"><Operation /></el-icon><p>从中间选择一个工具开始。</p></div>
         <div class="result-panel" v-if="result"><div class="result-heading"><span>处理结果</span><el-button text size="small" @click="result = ''">清除</el-button></div><pre>{{ result }}</pre><div class="result-actions" v-if="resultCanApply"><el-button size="small" @click="copyResult">复制结果</el-button><el-button size="small" type="primary" @click="applyResult">应用到编辑区</el-button></div></div>
@@ -129,7 +129,7 @@ async function loadSelectedDocument() {
   try {
     const detail = responseData(await docApi.getDocDetail(selectedDocumentId.value))
     workingContent.value = detail.content || ''
-    if (!workingContent.value) ElMessage.warning('这份上传文档尚未提取正文，可粘贴文本后再使用工具箱处理')
+    if (!workingContent.value) ElMessage.info('该文件尚未提取正文；可直接使用 OCR、PDF 或 Word 表格工具处理原始文件')
   } catch (error) { ElMessage.error('读取文档正文失败') } finally { pageLoading.value = false }
 }
 
@@ -202,7 +202,8 @@ async function runFileJob(toolType) {
 }
 async function runTool() {
   const tool = selectedTool.value
-  if (!tool || !workingContent.value.trim()) { ElMessage.warning('请先选择文档或输入待处理文本'); return }
+  const fileTool = ['ocr', 'pdf', 'table'].includes(tool?.id)
+  if (!tool || (!workingContent.value.trim() && !(fileTool && selectedDocumentId.value))) { ElMessage.warning('请先选择文档或输入待处理文本'); return }
   running.value = true; result.value = ''; resultCanApply.value = false
   try {
     if (tool.id === 'ocr') { await runFileJob('OCR') }
