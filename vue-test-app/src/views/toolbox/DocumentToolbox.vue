@@ -6,7 +6,7 @@
         <div class="title-row"><span class="title-mark"><el-icon><MagicStick /></el-icon></span><div><h1>文档处理工具箱</h1><p>用 AI 和实用工具，让每一份文档更清晰、更可靠、更易用。</p></div></div>
       </div>
       <div class="header-actions">
-        <el-button plain @click="fetchDocuments"><el-icon><Refresh /></el-icon> 刷新文档</el-button>
+        <el-button plain @click="scrollToProductivity"><el-icon><Grid /></el-icon> 生产力中心</el-button><el-button plain @click="fetchDocuments"><el-icon><Refresh /></el-icon> 刷新文档</el-button>
         <el-button type="primary" @click="router.push('/editor/chat-mode')"><el-icon><ChatDotRound /></el-icon> SmartDoc AI 对话</el-button>
       </div>
     </header>
@@ -54,7 +54,9 @@
       </aside>
     </section>
 
+    <div ref="productivityRef">
     <AdvancedWorkspace :current-content="workingContent" @apply="value => workingContent = value" />
+    </div>
 
     <section class="capability-note"><el-icon><InfoFilled /></el-icon><span><strong>已可执行：</strong>智能清洗、排版预设、AI 校对、文档对比、摘要、关键词、敏感信息脱敏、TXT / Markdown 导出、HTML PPT 生成。<strong>服务待接入：</strong>OCR、PDF 拆分合并、Word/PDF 格式转换、表格提取 Excel。</span></section>
   </div>
@@ -83,6 +85,7 @@ const pptTheme = ref('morandi')
 const result = ref('')
 const resultCanApply = ref(false)
 const operationCount = ref(Number(localStorage.getItem('smartdoc_toolbox_operations') || 0))
+const productivityRef = ref(null)
 
 const toolGroups = [
   { name: '内容优化', color: '#ACA0CE', items: [
@@ -110,6 +113,7 @@ const selectedTool = computed(() => toolGroups.flatMap(group => group.items).fin
 const compareCandidates = computed(() => documents.value.filter(doc => String(doc.id) !== selectedDocumentId.value))
 const completedCount = computed(() => operationCount.value)
 
+function scrollToProductivity() { productivityRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
 function responseData(res) { return res?.data ?? res ?? {} }
 function currentUserId() { return localStorage.getItem('userId') }
 function documentTitle(doc) { return doc?.title || doc?.name || '未命名文档' }
