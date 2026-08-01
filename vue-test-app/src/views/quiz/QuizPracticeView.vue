@@ -129,6 +129,17 @@ function parseModelQuestions(result) {
   if (start < 0 || end <= start) return []
   try { const parsed = JSON.parse(clean.slice(start, end + 1)); return Array.isArray(parsed) ? parsed.map(normalizeQuestion).filter(question => question.stem && question.answer) : [] } catch { return [] }
 }
+function extractQuestionAnswerPairs(content, sourceName, offset = 0) {
+  const questions = []
+  const pattern = /(?:^|\n)\s*(?:\d+\s*[.、．]\s*)?问\s*[：:]\s*([\s\S]*?)\s*\n\s*答\s*[：:]\s*([\s\S]*?)(?=\n\s*(?:(?:\d+\s*[.、．]\s*)?问\s*[：:]|[一二三四五六七八九十]+、)|$)/g
+  let match
+  while ((match = pattern.exec(content)) !== null) {
+    const stem = match[1].trim()
+    const answer = match[2].trim()
+    if (stem.length > 2 && answer.length > 0) questions.push(normalizeQuestion({ id: `source-${offset + questions.length + 1}`, type: 'short', stem, answer, analysis: `答案提取自《${sourceName}》。` }, offset + questions.length))
+  }
+  return questions
+}
 async function loadDocuments() {
   if (!userId()) { router.push('/login'); return }
   loading.value = true
@@ -167,19 +178,37 @@ async function createQuizSet() {
   try {
     const selected = sourceDocuments.value.filter(doc => selectedSourceIds.value.includes(String(doc.id)))
     const sources = []
-    for (const doc of selected) { const detail = data(await docApi.getDocDetail(doc.id)); if (detail.content?.trim()) sources.push({ id: String(doc.id), name: doc.title, content: detail.content }) }
+    for (const doc of selected) {
+      const detail = data(await docApi.getDocDetail(doc.id))
+      if (detail.content?.trim()) sources.push({ id: String(doc.id), name: doc.title, content: detail.content })
+    }
     if (!sources.length) throw new Error('所选文档没有可读取正文；扫描件请先 OCR')
-    const merged = sources.map((source, index) => `【文档 ${index + 1}：${source.name}】\n${source.content}`).join('\n\n').slice(0, 48000)
-    const prompt = `请从以下多份资料中提取或生成最多 30 道练习题。必须按题型分类，题型只能是 single（单选）、multiple（多选）、fill（填空）、judge（判断）、short（简答）。选择题必须提供 options，options 为 [{"key":"A","label":"选项内容"}]；判断题 options 固定为正确/错误。答案为选择题的 key、判断题 true 或 false、填空/简答为标准答案。只输出 JSON 数组，不要 Markdown。每一项格式：{"type":"single","stem":"题干","options":[{"key":"A","label":"..."}],"answer":"A","analysis":"解析"}。题目和答案必须依据资料，不要编造。\n\n资料：\n${merged}`
-    const generated = data(await aiApi.executeAgent({ task: prompt, context: { source: 'quiz-set-builder', model: 'deepseek-chat' } }))
-    const questions = parseModelQuestions(generated)
-    if (!questions.length) throw new Error('AI 未能生成格式正确的题目，请换一份文本型资料重试')
+
+    let questions = []
+    let offset = 0
+    for (const source of sources) {
+      const extracted = extractQuestionAnswerPairs(source.content, source.name, offset)
+      questions.push(...extracted)
+      offset += extracted.length
+    }
+    questions = questions.slice(0, 30)
+
+    if (!questions.length) {
+      const merged = sources.map((source, index) => `【文档 ${index + 1}：${source.name}】\n${source.content.slice(0, 6000)}`).join('\n\n').slice(0, 12000)
+      const prompt = `请从以下资料中制作最多 12 道练习题。题型只能是 single（单选）、multiple（多选）、fill（填空）、judge（判断）、short（简答）。选择题必须提供 options，options 为 [{"key":"A","label":"选项内容"}]；判断题 options 固定为正确/错误。答案为选择题的 key、判断题 true 或 false、填空/简答为标准答案。只输出 JSON 数组，不要 Markdown。每一项格式：{"type":"single","stem":"题干","options":[{"key":"A","label":"..."}],"answer":"A","analysis":"解析"}。题目和答案必须依据资料，不要编造。\n\n资料：\n${merged}`
+      const generated = data(await aiApi.executeAgent({ task: prompt, context: { source: 'quiz-set-builder', model: 'deepseek-chat' } }))
+      questions = parseModelQuestions(generated)
+    }
+    if (!questions.length) throw new Error('未能提取到题目和答案；请确认文档中包含“问：…答：…”或可读正文')
+
     const title = setTitle.value.trim() || `练题集 ${new Date().toLocaleDateString('zh-CN')}`
     const created = data(await docApi.createDoc({ title, category: 'quiz-set' }))
     if (!created.id) throw new Error('练题集保存失败')
     const payload = { version: 1, title, sourceDocumentIds: sources.map(item => item.id), sourceNames: sources.map(item => item.name), questions, createdAt: new Date().toISOString() }
     await docApi.updateDoc(created.id, { title, content: JSON.stringify(payload), category: 'quiz-set', changeLog: '创建智能练题集' })
-    await loadDocuments(); ElMessage.success(`练题集已保存，共 ${questions.length} 道题`); await openSet(created.id)
+    await loadDocuments()
+    ElMessage.success(`练题集已保存，共 ${questions.length} 道题${questions[0]?.id?.startsWith('source-') ? '（已直接提取题库问答）' : ''}`)
+    await openSet(created.id)
   } catch (error) { ElMessage.error(error?.message || '创建练题集失败') } finally { building.value = false }
 }
 function objectiveCorrect(question, answer) {
