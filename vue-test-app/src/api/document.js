@@ -58,5 +58,9 @@ export const docApi = {
 
     getCollaborators: (id) => {
         return request.get(`/documents/${id}/collaborators`)
-    }
+    },
+
+    submitToolboxJob: (data) => request.post('/documents/toolbox/jobs', data),
+    getToolboxJob: (jobId) => request.get(`/documents/toolbox/jobs/${jobId}`),
+    downloadToolboxJob: (jobId) => request.get(`/documents/toolbox/jobs/${jobId}/download`, { responseType: 'blob' })
 }

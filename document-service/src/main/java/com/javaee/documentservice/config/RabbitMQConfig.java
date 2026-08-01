@@ -22,6 +22,9 @@ public class RabbitMQConfig {
     public static final String COLLABORATE_EDIT_QUEUE = "collaborate.edit.queue";
     public static final String COLLABORATE_EDIT_ROUTING_KEY = "collaborate.edit";
 
+    public static final String TOOLBOX_QUEUE = "document.toolbox.queue";
+    public static final String TOOLBOX_ROUTING_KEY = "document.toolbox";
+
     @Bean
     public Queue fileUploadQueue() {
         return new Queue(FILE_UPLOAD_QUEUE, true);
@@ -57,6 +60,12 @@ public class RabbitMQConfig {
                 .to(collaborateExchange())
                 .with(COLLABORATE_EDIT_ROUTING_KEY);
     }
+
+    @Bean
+    public Queue toolboxQueue() { return new Queue(TOOLBOX_QUEUE, true); }
+
+    @Bean
+    public Binding toolboxBinding() { return BindingBuilder.bind(toolboxQueue()).to(fileExchange()).with(TOOLBOX_ROUTING_KEY); }
 
     @Bean
     public MessageConverter jsonMessageConverter() {

@@ -42,7 +42,7 @@
         <template v-if="selectedTool">
           <p class="operation-description">{{ selectedTool.detail }}</p>
           <div v-if="selectedTool.id === 'format'" class="setting-block"><label>排版预设</label><el-radio-group v-model="formatPreset" class="preset-group"><el-radio-button label="formal">正式报告</el-radio-button><el-radio-button label="clear">清晰阅读</el-radio-button><el-radio-button label="compact">紧凑笔记</el-radio-button></el-radio-group><p class="helper-text">会统一标题、段落间距与项目列表格式，不改变原有文字内容。</p></div>
-          <div v-else-if="selectedTool.id === 'compare'" class="setting-block"><label>对比对象</label><el-select v-model="compareDocumentId" filterable placeholder="选择第二份文档" class="document-select"><el-option v-for="doc in compareCandidates" :key="doc.id" :label="doc.title || doc.name" :value="String(doc.id)" /></el-select><p class="helper-text">按段落计算新增和删除内容，并生成可读摘要。</p></div>
+          <div v-else-if="['compare', 'pdf'].includes(selectedTool.id)" class="setting-block"><label>对比对象</label><el-select v-model="compareDocumentId" filterable placeholder="选择第二份文档" class="document-select"><el-option v-for="doc in compareCandidates" :key="doc.id" :label="doc.title || doc.name" :value="String(doc.id)" /></el-select><p class="helper-text">按段落计算新增和删除内容，并生成可读摘要。</p></div>
           <div v-else-if="selectedTool.id === 'convert'" class="setting-block"><label>导出格式</label><el-radio-group v-model="exportFormat" class="preset-group"><el-radio-button label="txt">TXT</el-radio-button><el-radio-button label="md">Markdown</el-radio-button></el-radio-group><p class="helper-text">TXT 与 Markdown 可直接在浏览器生成下载；Word、PDF 转换需要后端文件转换服务。</p></div>
           <div v-else-if="selectedTool.id === 'ppt'" class="setting-block"><label>PPT 主题</label><el-select v-model="pptTheme" class="document-select"><el-option label="莫兰迪浅色" value="morandi" /><el-option label="商务蓝" value="business" /><el-option label="极简白" value="minimal" /></el-select><p class="helper-text">调用现有 HTML PPT Skill，根据正文提炼演示大纲。</p></div>
           <div v-else-if="selectedTool.mode === 'planned'" class="planned-state"><span class="planned-icon"><el-icon><Timer /></el-icon></span><strong>文件处理服务待接入</strong><p>当前项目尚未提供 {{ selectedTool.name }} 的后端处理接口。已保留统一入口与文件上下文，接入 OCR / PDF / 表格服务后即可启用。</p></div>
@@ -92,14 +92,14 @@ const toolGroups = [
     { id: 'summary', name: '智能摘要', description: '提炼核心结论', detail: '基于正文生成短摘要，适合快速浏览和对外同步。', tip: '摘要会显示在结果区，可复制或应用到编辑区。', icon: 'DocumentCopy', color: '#A16F87', tint: '#F7E9EF' },
     { id: 'keywords', name: '关键词提取', description: '识别主题标签', detail: '从正文提取最关键的主题词，可直接用于文档标签或汇报标题。', tip: '默认生成 8 个关键词。', icon: 'CollectionTag', color: '#A16F87', tint: '#F7E9EF' },
     { id: 'ppt', name: '一键生成 PPT', description: '生成可预览演示稿', detail: '调用平台现有 PPT Skill，为文档生成可直接预览的 HTML 演示稿。', tip: '生成后将在新页面打开演示稿预览。', icon: 'Monitor', color: '#A16F87', tint: '#F7E9EF' },
-    { id: 'mindmap', name: '思维导图', description: '结构化知识脉络', detail: '将内容拆解成可视化的层级导图。', tip: '需要 AI 输出与导图渲染服务协同处理。', icon: 'Share', color: '#A16F87', tint: '#F7E9EF', mode: 'planned' }
+    { id: 'mindmap', name: '思维导图', description: 'DeepSeek 结构化导图', detail: '通过 DeepSeek 提炼内容层级并生成 Mermaid 思维导图。', tip: '结果可直接复制到支持 Mermaid 的 Markdown 文档。', icon: 'Share', color: '#A16F87', tint: '#F7E9EF' }
   ]},
   { name: '安全与交付', color: '#EDF4E2', items: [
     { id: 'mask', name: '敏感信息脱敏', description: '手机号、邮箱、身份证', detail: '在浏览器本地对常见手机号、邮箱和身份证号进行掩码处理，便于安全分享。', tip: '仅处理常见规则，不代替企业级数据安全审查。', icon: 'Lock', color: '#6D8A64', tint: '#EAF2E5' },
     { id: 'convert', name: '格式导出', description: 'TXT / Markdown 下载', detail: '将当前文本导出为通用的 TXT 或 Markdown 文件。', tip: '直接下载不上传内容；其他格式转换待后端文件服务接入。', icon: 'Download', color: '#6D8A64', tint: '#EAF2E5' },
-    { id: 'pdf', name: 'PDF 工具', description: '拆分、合并与提取页面', detail: '对 PDF 进行页面级拆分、合并和内容提取。', tip: '需要 PDF 文件处理服务支持。', icon: 'Files', color: '#6D8A64', tint: '#EAF2E5', mode: 'planned' },
-    { id: 'ocr', name: 'OCR 识别', description: '图片与扫描件转文本', detail: '识别图片或扫描 PDF 中的文字并保存为可编辑内容。', tip: '需要 OCR 引擎及文件解析服务支持。', icon: 'Picture', color: '#6D8A64', tint: '#EAF2E5', mode: 'planned' },
-    { id: 'table', name: '表格提取', description: '导出 Excel 数据', detail: '识别文档中的表格并导出为可编辑的 Excel 数据。', tip: '需要表格识别与 Excel 导出服务支持。', icon: 'Grid', color: '#6D8A64', tint: '#EAF2E5', mode: 'planned' }
+    { id: 'pdf', name: 'PDF 工具', description: '拆分、合并与提取页面', detail: '选择页码可拆分 PDF；另选一份文档则合并两份 PDF。', tip: '任务由 RabbitMQ 异步执行，完成后直接下载。', icon: 'Files', color: '#6D8A64', tint: '#EAF2E5' },
+    { id: 'ocr', name: 'OCR 识别', description: '图片转可编辑文本', detail: '识别已上传图片中的中英文文字，并生成 TXT 结果。', tip: '任务完成后可下载识别文本。', icon: 'Picture', color: '#6D8A64', tint: '#EAF2E5' },
+    { id: 'table', name: '表格提取', description: 'Word 表格导出 Excel', detail: '提取 DOCX 文档内的表格，生成可编辑 Excel 文件。', tip: '任务完成后可下载 XLSX 文件。', icon: 'Grid', color: '#6D8A64', tint: '#EAF2E5' }
   ]}
 ]
 
@@ -191,12 +191,26 @@ function downloadText(content, extension) {
   link.href = url; link.download = `${documentTitle(title).replace(/[\\/:*?"<>|]/g, '_') || 'SmartDoc文档'}.${extension}`; link.click(); URL.revokeObjectURL(url)
 }
 
+async function runFileJob(toolType) {
+  if (!selectedDocumentId.value) { ElMessage.warning('请先选择已上传的原始文件'); return }
+  const ids = [selectedDocumentId.value]
+  if (toolType === 'PDF_MERGE') { if (!compareDocumentId.value) { ElMessage.warning('请选择第二份 PDF 文档'); return }; ids.push(compareDocumentId.value) }
+  const submitted = responseData(await docApi.submitToolboxJob({ toolType, documentIds: ids, pages: toolType === 'PDF_SPLIT' ? compareDocumentId.value : undefined }))
+  result.value = '任务已进入队列，正在处理…'; resultCanApply.value = false
+  for (let i = 0; i < 90; i++) { await new Promise(resolve => setTimeout(resolve, 1200)); const job = responseData(await docApi.getToolboxJob(submitted.jobId)); result.value = `${job.message}\n\n当前进度：${job.progress}%`; if (job.status === 'SUCCESS') { const blob = await docApi.downloadToolboxJob(job.jobId); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = job.fileName; link.click(); URL.revokeObjectURL(url); result.value += '\n\n结果文件已开始下载。'; return } if (job.status === 'FAILED') throw new Error(job.message) }
+  throw new Error('任务处理超时，请稍后重试')
+}
 async function runTool() {
   const tool = selectedTool.value
   if (!tool || !workingContent.value.trim()) { ElMessage.warning('请先选择文档或输入待处理文本'); return }
   running.value = true; result.value = ''; resultCanApply.value = false
   try {
-    if (tool.id === 'clean') { result.value = normalizeText(workingContent.value); resultCanApply.value = true }
+    if (tool.id === 'ocr') { await runFileJob('OCR') }
+    else if (tool.id === 'table') { await runFileJob('WORD_TABLE_EXCEL') }
+    else if (tool.id === 'pdf') { await runFileJob(compareDocumentId.value ? 'PDF_MERGE' : 'PDF_SPLIT') }
+    else if (tool.id === 'mindmap') { const prompt = `请基于以下内容输出 Mermaid mindmap 代码，只输出代码：
+`; const data = responseData(await aiApi.executeAgent({ task: prompt, context: { source: 'toolbox-mindmap' } })); result.value = data.finalAnswer || data.answer || data.content || JSON.stringify(data) }
+    else if (tool.id === 'clean') { result.value = normalizeText(workingContent.value); resultCanApply.value = true }
     else if (tool.id === 'format') { result.value = applyFormat(workingContent.value); resultCanApply.value = true }
     else if (tool.id === 'mask') { result.value = maskSensitive(workingContent.value); resultCanApply.value = true }
     else if (tool.id === 'compare') {
