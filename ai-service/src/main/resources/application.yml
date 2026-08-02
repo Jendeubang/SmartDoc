@@ -90,11 +90,12 @@ spring:
 ai:
   deepseek:
     read-timeout-ms: ${DEEPSEEK_READ_TIMEOUT_MS:120000}
-  # OpenAI compatible speech-to-text service. DeepSeek only creates the minutes after transcription.
-  asr:
-    url: ${ASR_BASE_URL:}
-    api-key: ${ASR_API_KEY:}
-    model: ${ASR_MODEL:whisper-1}
+  # DashScope Qwen3 ASR. DeepSeek only creates meeting minutes after transcription.
+  dashscope-asr:
+    base-url: ${DASHSCOPE_ASR_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions}
+    model: ${DASHSCOPE_ASR_MODEL:qwen3-asr-flash}
+    # Base64 audio must remain within DashScope's 10MB request limit.
+    max-inline-bytes: ${DASHSCOPE_ASR_MAX_INLINE_BYTES:7340032}
   # 多模型配置（Spring AI 无法通过配置声明多 ChatModel bean，由 AIServiceFactory 编程式创建）
   models:
     glm-5:
