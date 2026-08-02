@@ -69,10 +69,11 @@ const handleLogin = async () => {
 
 <style scoped>
 .auth-bg { height: 100vh; display: flex; justify-content: center; align-items: center; background: #f0f2f5; }
-.auth-card { width: 400px; padding: 20px 30px; border-radius: 12px; }
-.logo { text-align: center; font-size: 24px; font-weight: bold; color: #409EFF; margin-bottom: 10px; }
+.auth-card { width: min(460px, calc(100vw - 32px)); padding: 20px 30px; border-radius: 12px; }
+.logo { text-align: center; white-space: nowrap; font-size: 24px; font-weight: bold; color: #409EFF; margin-bottom: 10px; }
 .title { text-align: center; font-size: 18px; color: #333; margin-bottom: 25px; }
 .submit-btn { width: 100%; margin-top: 10px; font-weight: bold;}
 .footer-text { text-align: center; margin-top: 15px; font-size: 14px; }
 .footer-text a { color: #409EFF; text-decoration: none; }
+@media (max-width: 440px) { .logo { white-space: normal; font-size: 21px; } }
 </style>
