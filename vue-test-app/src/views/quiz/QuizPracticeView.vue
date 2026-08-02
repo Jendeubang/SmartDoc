@@ -130,15 +130,18 @@ function parseModelQuestions(result) {
   try { const parsed = JSON.parse(clean.slice(start, end + 1)); return Array.isArray(parsed) ? parsed.map(normalizeQuestion).filter(question => question.stem && question.answer) : [] } catch { return [] }
 }
 function detectQuestionTypeHeading(line, fallback) {
-  if (/多项选择|多选题/.test(line)) return 'multiple'
-  if (/单项选择|单选题|选择题/.test(line)) return 'single'
-  if (/判断题|辨析题/.test(line)) return 'judge'
-  if (/填空题/.test(line)) return 'fill'
-  if (/简答题|问答题|论述题/.test(line)) return 'short'
+  if (/多项选择|多选题|多选/.test(line)) return 'multiple'
+  if (/单项选择|单选题|选择题|单选/.test(line)) return 'single'
+  if (/判断题|辨析题|判断/.test(line)) return 'judge'
+  if (/填空题|填空/.test(line)) return 'fill'
+  if (/简答题|问答题|论述题|简答/.test(line)) return 'short'
   return fallback
 }
 function extractQuestionAnswerPairs(content, sourceName, offset = 0) {
-  const lines = String(content || '').replace(/\r\n/g, '\n').split('\n')
+  const fullText = String(content || '').replace(/\r\n/g, '\n')
+  const lines = fullText.split('\n')
+  const answerKey = {}
+  for (const item of fullText.matchAll(/(?:^|[\n；;，,、\s])(\d+)\s*[.、．:：]\s*([A-H]|正确|错误|对|错)(?=\s*(?:[；;，,、]|\d+\s*[.、．:：]|$))/gim)) answerKey[item[1]] = item[2]
   const blocks = []
   let sectionType = 'short'
   let current = null
@@ -147,14 +150,13 @@ function extractQuestionAnswerPairs(content, sourceName, offset = 0) {
     const line = rawLine.trim()
     if (!line) { if (current) current.lines.push(''); continue }
     const nextType = detectQuestionTypeHeading(line, sectionType)
-    if (nextType !== sectionType && /(选择题|判断题|填空题|简答题|问答题|论述题)/.test(line)) { pushCurrent(); sectionType = nextType; continue }
-    const start = line.match(/^(\d+)\s*[.、．]\s*(.+)$/)
-    const rest = start?.[2] || ''
+    if (nextType !== sectionType && /(选择题|单选|多选|判断|填空|简答|问答题|论述题)/.test(line)) { pushCurrent(); sectionType = nextType; continue }
+    const start = line.match(/^(?:[（(]\s*(\d+)\s*[)）]|(\d+)\s*[.、．])\s*(.+)$/)
+    const number = start?.[1] || start?.[2]
+    const rest = start?.[3] || ''
     const explicitQuestion = /^(?:问|题目|问题)\s*[：:]/.test(rest)
     const questionLike = /[？?]$/.test(rest) || /^(?:单选|多选|判断|填空|简答)题/.test(rest)
-    if (start && (explicitQuestion || sectionType !== 'short' || questionLike)) {
-      pushCurrent(); current = { sectionType, lines: [rest] }; continue
-    }
+    if (start && (explicitQuestion || sectionType !== 'short' || questionLike)) { pushCurrent(); current = { sectionType, number, lines: [rest] }; continue }
     if (current) current.lines.push(line)
   }
   pushCurrent()
@@ -162,27 +164,23 @@ function extractQuestionAnswerPairs(content, sourceName, offset = 0) {
   return blocks.map((block, index) => {
     const body = block.lines.join('\n').trim()
     const answerMatch = body.match(/(?:^|\n)\s*(?:参考)?(?:正确)?(?:答案|答)\s*[：:]\s*([\s\S]*)$/)
-    if (!answerMatch) return null
-    const beforeAnswer = body.slice(0, answerMatch.index).trim()
+    if (!answerMatch && !answerKey[block.number]) return null
+    const beforeAnswer = answerMatch ? body.slice(0, answerMatch.index).trim() : body
     const options = []
     const stemLines = []
     for (const line of beforeAnswer.split('\n')) {
-      const option = line.trim().match(/^([A-H])\s*[.、．:：]\s*(.+)$/i)
+      const option = line.trim().match(/^[（(]?([A-H])[)）]?\s*(?:[.、．:：]|\s+)\s*(.+)$/i)
       if (option) options.push({ key: option[1].toUpperCase(), label: option[2].trim() })
       else stemLines.push(line)
     }
-    let stem = stemLines.join('\n').replace(/^(?:问|题目|问题)\s*[：:]\s*/, '').trim()
+    const stem = stemLines.join('\n').replace(/^(?:问|题目|问题)\s*[：:]\s*/, '').trim()
     if (!stem) return null
-    const answerText = answerMatch[1].trim().replace(/\n[一二三四五六七八九十]+、[\s\S]*$/, '').trim()
+    const answerText = (answerMatch?.[1] || answerKey[block.number] || '').trim().replace(/\n[一二三四五六七八九十]+、[\s\S]*$/, '').trim()
     let type = block.sectionType
     const keys = (answerText.match(/\b[A-H]\b/gi) || []).map(key => key.toUpperCase())
     if (options.length >= 2 && type === 'short') type = keys.length > 1 ? 'multiple' : 'single'
-    if (type === 'judge') {
-      return normalizeQuestion({ id: `source-${offset + index + 1}`, type, stem, options: [{ key: 'true', label: '正确' }, { key: 'false', label: '错误' }], answer: /^(?:正确|对|是|true)$/i.test(answerText) ? 'true' : 'false', analysis: `答案提取自《${sourceName}》。` }, offset + index)
-    }
-    if ((type === 'single' || type === 'multiple') && options.length >= 2) {
-      return normalizeQuestion({ id: `source-${offset + index + 1}`, type, stem, options, answer: type === 'multiple' ? keys : (keys[0] || answerText), analysis: `答案提取自《${sourceName}》。` }, offset + index)
-    }
+    if (type === 'judge') return normalizeQuestion({ id: `source-${offset + index + 1}`, type, stem, options: [{ key: 'true', label: '正确' }, { key: 'false', label: '错误' }], answer: /^(?:正确|对|是|true)$/i.test(answerText) ? 'true' : 'false', analysis: `答案提取自《${sourceName}》。` }, offset + index)
+    if ((type === 'single' || type === 'multiple') && options.length >= 2) return normalizeQuestion({ id: `source-${offset + index + 1}`, type, stem, options, answer: type === 'multiple' ? keys : (keys[0] || answerText), analysis: `答案提取自《${sourceName}》。` }, offset + index)
     if (type === 'fill') return normalizeQuestion({ id: `source-${offset + index + 1}`, type, stem, answer: answerText, analysis: `答案提取自《${sourceName}》。` }, offset + index)
     return normalizeQuestion({ id: `source-${offset + index + 1}`, type: 'short', stem, answer: answerText, analysis: `答案提取自《${sourceName}》。` }, offset + index)
   }).filter(Boolean)
@@ -296,4 +294,4 @@ onMounted(async () => { await loadDocuments(); if (route.params.id) await openSe
 
 <style scoped>
 .quiz-page{min-height:100vh;padding:30px 34px 42px;background:#fbfaf8;color:#423c4b;font-family:"Microsoft YaHei",sans-serif}.quiz-header{max-width:1420px;margin:0 auto 22px;display:flex;justify-content:space-between;align-items:center;gap:20px}.back-link,.plain-back{border:0;background:transparent;padding:0;color:#817794;cursor:pointer;font-size:13px;display:inline-flex;align-items:center;gap:5px}.title-row{display:flex;align-items:center;gap:13px;margin-top:11px}.title-mark{width:46px;height:46px;border-radius:15px;display:grid;place-items:center;background:#a16f87;color:#fff;font-size:21px;box-shadow:0 8px 20px #a16f8755}.title-row h1{margin:0 0 5px;font-size:25px}.title-row p{margin:0;color:#948da0;font-size:13px}.quiz-layout{max-width:1420px;margin:auto;display:grid;grid-template-columns:260px minmax(0,1fr);gap:18px}.set-sidebar,.builder-card,.practice-card{background:#fff;border:1px solid #ebe5ea;border-radius:20px;box-shadow:0 8px 28px #7a6d8a0b}.set-sidebar{padding:15px;height:max-content}.side-heading{display:flex;justify-content:space-between;align-items:center;padding:3px 4px 13px}.side-heading span,.side-heading small{display:block}.side-heading span{font-size:14px;font-weight:700}.side-heading small{font-size:11px;color:#9e96a5;margin-top:3px}.saved-set{width:100%;display:flex;gap:9px;align-items:center;border:0;border-radius:12px;background:transparent;padding:10px 8px;text-align:left;cursor:pointer;color:#756d7d}.saved-set:hover,.saved-set.active{background:#f8f4f8}.saved-set>span:nth-child(2){min-width:0;flex:1}.saved-set strong,.saved-set small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.saved-set strong{font-size:12px;color:#574f61}.saved-set small{font-size:10px;color:#a198a7;margin-top:3px}.set-icon{display:grid;place-items:center;width:28px;height:28px;border-radius:9px;background:#f2e9ee;color:#a16f87}.empty-sets{padding:25px 8px;text-align:center;color:#a69eaa;font-size:11px;line-height:1.7}.builder-card,.practice-card{padding:28px}.eyebrow{font-size:10px;letter-spacing:1.5px;color:#a16f87;font-weight:700}.builder-heading h2,.practice-top h2{margin:7px 0;color:#51495b;font-size:23px}.builder-heading p,.practice-top p{font-size:12px;color:#8e8695;line-height:1.7;margin:0}.builder-toolbar{display:flex;gap:10px;margin-top:25px}.builder-toolbar .el-input{flex:1}.hidden-file-input{display:none}.source-tip{font-size:11px;color:#9b92a0;margin:12px 0}.source-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;max-height:380px;overflow:auto;padding:2px}.source-item{height:auto!important;margin:0!important;padding:12px;border:1px solid #eee8ef;border-radius:12px;display:flex!important;align-items:center}.source-name{display:block;max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#5b5261;font-size:12px}.source-item small{display:block;color:#aaa2af;font-size:10px;margin-top:3px}.builder-footer{margin-top:18px;padding-top:15px;border-top:1px dashed #e7e0e7;display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#847b8b}.practice-top{display:flex;align-items:flex-start;justify-content:space-between;gap:15px}.score-chip{padding:8px 12px;border-radius:99px;background:#edf4e2;color:#66805f;font-size:12px;white-space:nowrap}.type-summary{display:flex;gap:8px;flex-wrap:wrap;margin:22px 0 14px}.type-summary button{border:1px solid #ebe4ec;border-radius:10px;background:#faf9fa;color:#807787;padding:8px 10px;cursor:pointer;font-size:11px}.type-summary button strong{margin-left:7px}.type-summary button.active{background:#f3edf6;border-color:#aca0ce;color:#706287}.question-nav{display:flex;gap:7px;overflow:auto;padding-bottom:6px}.question-nav button{flex:none;width:30px;height:30px;border:1px solid #e9e2eb;border-radius:8px;background:#fff;color:#827889;font-size:11px;cursor:pointer}.question-nav button.active{background:#84799f;border-color:#84799f;color:#fff}.question-nav button.done:not(.active){background:#ebf4ed;border-color:#d3e6d7;color:#64836c}.question-card{margin-top:17px;padding:22px;border-radius:16px;background:#fcfbfc;border:1px solid #eee8ef}.question-meta{display:flex;justify-content:space-between;color:#988fa0;font-size:11px}.type-badge{background:#f1e9f1;color:#a16f87;border-radius:99px;padding:3px 8px}.question-card h3{font-size:16px;line-height:1.8;color:#4e4656;margin:16px 0}.option-list{display:flex;flex-direction:column;gap:9px;width:100%}.option-list :deep(.el-radio),.option-list :deep(.el-checkbox){height:auto!important;margin:0!important;padding:10px 12px;white-space:normal;line-height:1.6}.answer-result{margin-top:14px;padding:12px;border-radius:11px;background:#fbefec;color:#9d6059;font-size:12px;line-height:1.65}.answer-result.correct{background:#eaf4ec;color:#577a60}.answer-result strong{margin-right:9px}.answer-result p{margin:5px 0 0}.question-actions{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:16px;font-size:11px;color:#928998}.no-questions{padding:80px 0;text-align:center;color:#a39aa7;font-size:13px}@media(max-width:850px){.quiz-page{padding:20px 14px}.quiz-header{align-items:flex-start}.quiz-layout{grid-template-columns:1fr}.set-sidebar{order:2}.source-list{grid-template-columns:1fr}.builder-toolbar,.practice-top{flex-direction:column}.builder-toolbar .el-button{width:100%}.question-actions{align-items:flex-start;flex-direction:column}}
-</style>
+.option-list :deep(.el-radio),.option-list :deep(.el-checkbox){justify-content:flex-start!important;text-align:left!important}.option-list :deep(.el-radio__label),.option-list :deep(.el-checkbox__label){flex:1;text-align:left!important;white-space:normal}</style>
