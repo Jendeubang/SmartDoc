@@ -343,7 +343,7 @@ function downloadText(content, extension) {
   const title = documents.value.find(doc => String(doc.id) === selectedDocumentId.value)
   link.href = url; link.download = `${documentTitle(title).replace(/[\\/:*?"<>|]/g, '_') || 'SmartDoc文档'}.${extension}`; link.click(); URL.revokeObjectURL(url)
 }
-function splitTranslationText(content, maxLength = 6000) {
+function splitTranslationText(content, maxLength = 2600) {
   const chunks = []; let current = ''
   for (const paragraph of String(content || '').split(/\n{2,}/)) {
     const normalized = paragraph.trim()
@@ -364,7 +364,7 @@ async function translateDocument(content) {
   for (let index = 0; index < chunks.length; index += 1) {
     result.value = `正在翻译第 ${index + 1} / ${chunks.length} 段…`
     const prompt = `你是一名专业文档翻译。请将以下文本从${sourceLanguageName()}翻译为${languageName(targetLanguage.value)}。要求：${style}；保留原有段落、标题、编号、列表、表格文字和专业术语；只输出译文，不要解释、前言或 Markdown 代码块。\n\n原文：\n${chunks[index]}`
-    const payload = responseData(await aiApi.executeAgent({ task: prompt, context: { source: 'document-toolbox', action: 'translate', model: 'deepseek-chat' } }))
+    const payload = responseData(await aiApi.chatText(prompt, 'deepseek-chat'))
     const text = typeof payload === 'string' ? payload : (payload.finalAnswer || payload.answer || payload.content || '')
     if (!String(text).trim()) throw new Error(`第 ${index + 1} 段未返回译文`)
     translated.push(String(text).trim())

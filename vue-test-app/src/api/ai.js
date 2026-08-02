@@ -50,6 +50,12 @@ export const aiApi = {
         }))
     },
 
+    // 直接调用指定模型，适合翻译等不需要工具规划的纯文本任务
+    chatText: (prompt, model = 'deepseek-chat') => {
+        return runAsyncJob(() => request.post('/ai/async/chat', { prompt }, {
+            params: { model }
+        }))
+    },
     // 针对选中文本进行总结/润色 (单次调用，不需要记忆)
     summarizeText: (content, maxLength = 200, model) => {
         return runAsyncJob(() => request.post('/ai/async/summarize', { content, maxLength }, {
