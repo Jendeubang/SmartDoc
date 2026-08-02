@@ -1,7 +1,7 @@
 <template>
   <div class="auth-bg">
     <el-card class="auth-card" shadow="hover">
-      <div class="logo">DocAI 智能平台</div>
+      <div class="logo">SmartDoc 文档智能处理平台</div>
       <h2 class="title">欢迎回来</h2>
       <el-form :model="form" label-position="top">
         <el-form-item label="用户名">
