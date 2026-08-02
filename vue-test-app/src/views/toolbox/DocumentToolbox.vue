@@ -75,7 +75,7 @@
     </section>
 
     <div ref="productivityRef">
-    <AdvancedWorkspace :current-content="workingContent" @apply="value => workingContent = value" />
+    <AdvancedWorkspace :current-content="workingContent" :current-document="activeDocument" @apply="value => workingContent = value" />
     </div>
 
     <section class="capability-note"><el-icon><InfoFilled /></el-icon><span><strong>已可执行：</strong>智能清洗、排版预设、AI 校对、文档对比、摘要、关键词、多语文档翻译、敏感信息脱敏、TXT / Markdown 导出、HTML PPT 生成。<strong>已接入：</strong>OCR、PDF 拆分合并、DOCX ↔ PDF 格式转换、Word 表格提取 Excel。</span></section>
@@ -147,6 +147,7 @@ const toolGroups = [
 ]
 
 const selectedTool = computed(() => toolGroups.flatMap(group => group.items).find(tool => tool.id === activeToolId.value))
+const activeDocument = computed(() => documents.value.find(doc => String(doc.id) === selectedDocumentId.value) || null)
 const compareCandidates = computed(() => documents.value.filter(doc => String(doc.id) !== selectedDocumentId.value))
 const completedCount = computed(() => operationCount.value)
 const currentQuiz = computed(() => quizQuestions.value[quizIndex.value])
