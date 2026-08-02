@@ -65,6 +65,23 @@ public class AIController {
     @Autowired
     private RequestUserContext requestUserContext;
 
+    @Autowired
+    private SpeechTranscriptionService speechTranscriptionService;
+
+    @PostMapping(value = "/meeting-minutes/audio", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "录音生成会议纪要", description = "上传音频后先调用 ASR 转写服务，再由 DeepSeek 整理为结构化会议纪要")
+    public Result<Map<String, String>> createMeetingMinutesFromAudio(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(required = false) String title,
+            @RequestParam(required = false, defaultValue = "auto") String language) {
+        SpeechTranscriptionService.MeetingMinutes result = speechTranscriptionService.transcribeAndSummarize(file, title, language);
+        Map<String, String> payload = new HashMap<>();
+        payload.put("transcript", result.transcript());
+        payload.put("minutes", result.minutes());
+        payload.put("asrModel", result.asrModel());
+        return Result.success(payload);
+    }
+
     /**
      * 获取可用模型列表
      * @return 模型列表

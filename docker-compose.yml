@@ -178,6 +178,10 @@ services:
       # DeepSeek API
       SPRING_AI_OPENAI_API_KEY: ${OPENAI_API_KEY}
       SPRING_AI_OPENAI_BASE_URL: https://api.deepseek.com
+      # ASR endpoint such as https://your-asr-host/v1/audio/transcriptions
+      ASR_BASE_URL: ${ASR_BASE_URL:-}
+      ASR_API_KEY: ${ASR_API_KEY:-}
+      ASR_MODEL: ${ASR_MODEL:-whisper-1}
       # 禁用 Nacos
       SPRING_CLOUD_NACOS_DISCOVERY_ENABLED: "false"
       SPRING_CLOUD_NACOS_CONFIG_ENABLED: "false"

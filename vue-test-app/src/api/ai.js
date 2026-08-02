@@ -57,6 +57,14 @@ export const aiApi = {
         }))
     },
     // 针对选中文本进行总结/润色 (单次调用，不需要记忆)
+    // Upload recording, transcribe it with ASR, then ask DeepSeek to create structured minutes.
+    createMeetingMinutesFromAudio: (file, title, language = 'auto') => {
+        const form = new FormData()
+        form.append('file', file)
+        form.append('title', title || '')
+        form.append('language', language || 'auto')
+        return request.post('/ai/meeting-minutes/audio', form, { timeout: 660000 })
+    },
     summarizeText: (content, maxLength = 200, model) => {
         return runAsyncJob(() => request.post('/ai/async/summarize', { content, maxLength }, {
             params: { model: model || undefined }
