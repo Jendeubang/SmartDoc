@@ -13,8 +13,12 @@ import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.reactive.function.client.WebClient;
 
 import jakarta.annotation.PostConstruct;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -39,6 +43,9 @@ public class AIServiceFactory {
     @Value("${spring.ai.openai.base-url:#{null}}")
     private String defaultBaseUrl;
 
+    @Value("${ai.deepseek.read-timeout-ms:120000}")
+    private int deepseekReadTimeoutMs;
+
     @Autowired
     private MultiModelConfig multiModelConfig;
 
@@ -56,10 +63,10 @@ public class AIServiceFactory {
             MultiModelConfig.ModelConfig config = multiModelConfig.getModelConfig(modelCode);
 
             if (QWEN_TURBO_CODE.equals(modelCode)) {
-                // 默认模型：使用 Spring AI 自动配置的 ChatModel
-                OpenAIAIService service = new OpenAIAIService(defaultChatModel, modelType, enabled);
+                ChatModel deepSeekModel = createChatModel(defaultBaseUrl, defaultApiKey, modelCode, deepseekReadTimeoutMs);
+                OpenAIAIService service = new OpenAIAIService(deepSeekModel, modelType, enabled);
                 serviceMap.put(modelType, service);
-                log.info("注册默认模型: {} (auto-config)", modelType.getName());
+                log.info("注册默认模型: {} (readTimeout={}ms)", modelType.getName(), deepseekReadTimeoutMs);
             } else {
                 // 其他模型：从 ai.models.{code} 读取独立配置，编程式创建 ChatModel
                 if (config != null && !config.isEnabled()) {
@@ -123,6 +130,19 @@ public class AIServiceFactory {
 
     public Map<ModelType, AIService> getAllServices() {
         return new HashMap<>(serviceMap);
+    }
+
+    private ChatModel createChatModel(String baseUrl, String apiKey, String modelName, int readTimeoutMs) {
+        if (apiKey == null || apiKey.isBlank() || baseUrl == null || baseUrl.isBlank()) {
+            throw new IllegalStateException("DeepSeek 缺少 apiKey 或 baseUrl 配置");
+        }
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(Duration.ofSeconds(15));
+        requestFactory.setReadTimeout(Duration.ofMillis(Math.max(readTimeoutMs, 15_000)));
+        OpenAiApi openAiApi = new OpenAiApi(baseUrl, apiKey,
+                RestClient.builder().requestFactory(requestFactory), WebClient.builder());
+        OpenAiChatOptions options = OpenAiChatOptions.builder().withModel(modelName).build();
+        return new OpenAiChatModel(openAiApi, options);
     }
 
     private static final String QWEN_TURBO_CODE = "deepseek-chat";

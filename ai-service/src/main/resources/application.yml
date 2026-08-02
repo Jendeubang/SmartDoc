@@ -88,6 +88,8 @@ spring:
 
 # ── AI 业务配置 ──────────────────────────────────────────────
 ai:
+  deepseek:
+    read-timeout-ms: ${DEEPSEEK_READ_TIMEOUT_MS:120000}
   # 多模型配置（Spring AI 无法通过配置声明多 ChatModel bean，由 AIServiceFactory 编程式创建）
   models:
     glm-5:
