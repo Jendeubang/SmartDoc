@@ -127,7 +127,7 @@ public class DocumentParserUtil {
             for (var table : document.getTables()) {
                 for (var row : table.getRows()) {
                     for (var cell : row.getTableCells()) {
-                        text.append(cell.getText()).append("\t");
+                        text.append(cell.getText().trim()).append("\n");
                     }
                     text.append("\n");
                 }

@@ -76,6 +76,12 @@ public class DocumentController {
         return Result.success(document);
     }
 
+    @PostMapping("/{id}/reparse")
+    @Operation(summary = "Reparse original upload", description = "Re-extract document text from the original uploaded file")
+    public Result<DocumentVO> reparse(@PathVariable String id) {
+        Long userId = requestUserContext.getRequiredUserId();
+        return Result.success(documentService.reparseSource(id, userId));
+    }
     /**
      * 删除文档
      * @param id 文档ID

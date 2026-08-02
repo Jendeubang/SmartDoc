@@ -27,6 +27,8 @@ export const docApi = {
     },
 
     // 更新文档内容 (保存编辑)
+    reparseDoc: (id) => request.post(`/documents/${id}/reparse`),
+
     updateDoc: (id, data) => {
         return request.put(`/documents/${id}`, data)
     },

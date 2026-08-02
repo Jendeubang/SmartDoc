@@ -194,6 +194,42 @@ public class DocumentServiceImpl implements DocumentService {
         return vo;
     }
 
+    @Override
+    @Transactional
+    public DocumentVO reparseSource(String id, Long userId) {
+        Document document = documentMapper.selectById(id);
+        if (document == null) {
+            throw new BusinessException("Document does not exist");
+        }
+        documentAccessService.assertCanWrite(document, userId);
+        if (document.getFileId() == null || document.getFileId().isBlank()) {
+            throw new BusinessException("This document has no original upload to reparse");
+        }
+
+        try {
+            String previousContent = documentContentService.getContentByKey(storageObjectName(document), storageBucketName(document));
+            saveVersion(document, "Reparse original upload", previousContent);
+            String fileName = fileServiceClient.getFileName(document.getFileId()).getBody();
+            byte[] bytes = fileServiceClient.downloadFile(document.getFileId()).getBody();
+            String content = DocumentParserUtil.parseDocument(bytes, fileName == null ? document.getTitle() : fileName);
+            if (content == null || content.isBlank()) {
+                throw new BusinessException("No readable text was found in the original upload");
+            }
+            documentContentService.saveContentByKey(storageObjectName(document), storageBucketName(document), content);
+            document.setSummary(DocumentParserUtil.getSummary(content, 200));
+            document.setVersion(document.getVersion() + 1);
+            document.setUpdateTime(LocalDateTime.now());
+            documentMapper.updateById(document);
+            DocumentVO vo = convertToVO(document);
+            vo.setContent(content);
+            return vo;
+        } catch (BusinessException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            log.error("Failed to reparse document source: id={}", id, exception);
+            throw new BusinessException("Reparse original upload failed: " + exception.getMessage());
+        }
+    }
     /**
      * 删除文档（软删除）
      * 将文档状态标记为已删除，不物理删除

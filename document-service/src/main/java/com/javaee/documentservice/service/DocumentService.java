@@ -31,6 +31,9 @@ public interface DocumentService {
      */
     DocumentVO update(String id, DocumentUpdateDTO dto, Long userId);
 
+    /** Re-read the original uploaded file and refresh extracted document text. */
+    DocumentVO reparseSource(String id, Long userId);
+
     /**
      * 删除文档（软删除）
      * @param id 文档ID

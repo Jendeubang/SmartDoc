@@ -224,7 +224,12 @@ async function createQuizSet() {
     const selected = sourceDocuments.value.filter(doc => selectedSourceIds.value.includes(String(doc.id)))
     const sources = []
     for (const doc of selected) {
-      const detail = data(await docApi.getDocDetail(doc.id))
+      let detail
+      if (doc.fileId && /\\.(docx|doc)$/i.test(doc.title || '')) {
+        detail = data(await docApi.reparseDoc(doc.id))
+      } else {
+        detail = data(await docApi.getDocDetail(doc.id))
+      }
       if (detail.content?.trim()) sources.push({ id: String(doc.id), name: doc.title, content: detail.content })
     }
     if (!sources.length) throw new Error('所选文档没有可读取正文；扫描件请先 OCR')
