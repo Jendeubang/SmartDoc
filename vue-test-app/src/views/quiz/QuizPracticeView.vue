@@ -241,8 +241,6 @@ async function createQuizSet() {
       questions.push(...extracted)
       offset += extracted.length
     }
-    questions = questions.slice(0, 30)
-
     if (!questions.length) {
       const merged = sources.map((source, index) => `【文档 ${index + 1}：${source.name}】\n${source.content.slice(0, 6000)}`).join('\n\n').slice(0, 12000)
       const prompt = `请从以下资料中制作最多 12 道练习题。题型只能是 single（单选）、multiple（多选）、fill（填空）、judge（判断）、short（简答）。选择题必须提供 options，options 为 [{"key":"A","label":"选项内容"}]；判断题 options 固定为正确/错误。答案为选择题的 key、判断题 true 或 false、填空/简答为标准答案。只输出 JSON 数组，不要 Markdown。每一项格式：{"type":"single","stem":"题干","options":[{"key":"A","label":"..."}],"answer":"A","analysis":"解析"}。题目和答案必须依据资料，不要编造。\n\n资料：\n${merged}`
