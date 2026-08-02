@@ -17,7 +17,7 @@
             <div class="ai-icon-wrapper">
               <el-icon color="#fff" size="14"><Cpu /></el-icon>
             </div>
-            <span>DocAI 全局助理</span>
+            <span>SmartDoc AI 全局助理</span>
           </div>
 
           <div class="header-actions">
@@ -56,7 +56,7 @@
               <el-icon size="16" color="#fff"><Cpu /></el-icon>
             </div>
             <div class="bubble ai-bubble">
-              你好！我是 DocAI 全局助理。无论是管理云端文档、清理回收站，还是跨文件查阅资料，随时吩咐我。
+              你好！我是 SmartDoc AI 全局助理。无论是管理云端文档、清理回收站，还是跨文件查阅资料，随时吩咐我。
             </div>
           </div>
 
@@ -134,10 +134,11 @@ const { currentStep: progressStep, startTracking, stopTracking } = useAgentProgr
 const currentModel = ref('deepseek-chat') // 默认 DeepSeek Chat
 const modelOptions = ref([])
 
-const { isAiPanelVisible, chatHistory, isAiThinking, currentConvId, toggleAiPanel, appendMessage, resetConversation, saveConvId} = useGlobalAi()
+const { isAiPanelVisible, chatHistory, isAiThinking, currentConvId, toggleAiPanel, appendMessage, resetConversation, saveConvId, initializeConversation } = useGlobalAi()
 
 // 组件挂载时自动拉取模型列表
 onMounted(async () => {
+  initializeConversation(localStorage.getItem('userId'))
   try {
     const res = await aiApi.getModels()
     modelOptions.value = res.data
