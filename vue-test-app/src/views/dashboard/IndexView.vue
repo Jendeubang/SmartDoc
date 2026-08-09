@@ -136,8 +136,8 @@
             <!-- 文档统计卡片 -->
             <div v-if="libraryScope !== 'trash'" class="category-boards">
   <button class="category-board category-board-all" :class="{ active: !categoryFilter }" @click="categoryFilter = ''"><span>全部文档</span><strong>{{ docList.length }}</strong></button>
-  <button v-for="board in categoryBoards" :key="board.id" class="category-board" :class="{ active: categoryFilter === board.value }" @click="categoryFilter = board.value"><i class="category-dot" :style="{ backgroundColor: board.color }"></i><span>{{ board.name }}</span><strong>{{ board.count }}</strong></button>
-  <button class="category-board category-board-create" @click="categoryDialogVisible = true"><el-icon><Plus /></el-icon> 新建板块</button>
+  <button v-for="board in categoryBoards" :key="board.id" class="category-board" :class="{ active: categoryFilter === board.value }" type="button" @click="selectCategory(board.value, $event)"><i class="category-dot" :style="{ backgroundColor: board.color }"></i><span>{{ board.name }}</span><strong>{{ board.count }}</strong></button>
+  <button class="category-board category-board-create" type="button" @click="categoryDialogVisible = true"><el-icon><Plus /></el-icon> 新建板块</button>
 </div><div class="stats-row">
               <div class="stat-card">
                 <el-icon :size="24" color="#3370ff"><Document /></el-icon>
@@ -236,8 +236,8 @@
   <div class="workbench-category-heading"><div><span class="workbench-category-title">文档分类</span><span class="workbench-category-subtitle">按板块快速查看和管理文档</span></div><el-button text type="primary" @click="categoryDialogVisible = true">管理分类</el-button></div>
   <div class="category-boards workbench-category-boards">
     <button class="category-board category-board-all" :class="{ active: !categoryFilter }" @click="categoryFilter = ''"><span>全部文档</span><strong>{{ docList.length }}</strong></button>
-    <button v-for="board in categoryBoards" :key="board.id" class="category-board" :class="{ active: categoryFilter === board.value }" @click="categoryFilter = board.value"><i class="category-dot" :style="{ backgroundColor: board.color }"></i><span>{{ board.name }}</span><strong>{{ board.count }}</strong></button>
-    <button class="category-board category-board-create" @click="categoryDialogVisible = true"><el-icon><Plus /></el-icon> 新建板块</button>
+    <button v-for="board in categoryBoards" :key="board.id" class="category-board" :class="{ active: categoryFilter === board.value }" type="button" @click="selectCategory(board.value, $event)"><i class="category-dot" :style="{ backgroundColor: board.color }"></i><span>{{ board.name }}</span><strong>{{ board.count }}</strong></button>
+    <button class="category-board category-board-create" type="button" @click="categoryDialogVisible = true"><el-icon><Plus /></el-icon> 新建板块</button>
   </div>
 </div>
 
@@ -401,7 +401,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Document as WordDocument, Packer, Paragraph, TextRun } from 'docx'
@@ -574,6 +574,15 @@ const categoryBoards = computed(() => {
   return boards
 })
 const persistedCategoryBoards = computed(() => categoryBoards.value.filter(board => board.persisted))
+const selectCategory = async (value, event) => {
+  event?.preventDefault()
+  const scrollContainer = document.querySelector('.feishu-main')
+  const previousScrollTop = scrollContainer?.scrollTop ?? window.scrollY
+  categoryFilter.value = value
+  await nextTick()
+  if (scrollContainer) scrollContainer.scrollTop = previousScrollTop
+  else window.scrollTo({ top: previousScrollTop })
+}
 const filteredList = computed(() => docList.value.filter(doc => {
   if (libraryScope.value === 'favorite' && !doc.favorite) return false
   if (categoryFilter.value === UNCATEGORIZED_CATEGORY && doc.category) return false
