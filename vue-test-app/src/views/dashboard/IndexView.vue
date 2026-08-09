@@ -213,7 +213,15 @@
             <el-empty v-else description="暂无文档，点击上方「上传文档」按钮上传" />
           </div>
 
-          <!-- 最近文档列表（工作台视图） -->
+          <div class="workbench-category-section" v-if="!showDocLibrary">
+  <div class="workbench-category-heading"><div><span class="workbench-category-title">文档分类</span><span class="workbench-category-subtitle">按板块快速查看和管理文档</span></div><el-button text type="primary" @click="categoryDialogVisible = true">管理分类</el-button></div>
+  <div class="category-boards workbench-category-boards">
+    <button class="category-board category-board-all" :class="{ active: !categoryFilter }" @click="categoryFilter = ''"><span>全部文档</span><strong>{{ docList.length }}</strong></button>
+    <button v-for="board in categoryBoards" :key="board.id" class="category-board" :class="{ active: categoryFilter === board.name }" @click="categoryFilter = board.name"><i class="category-dot" :style="{ backgroundColor: board.color }"></i><span>{{ board.name }}</span><strong>{{ board.count }}</strong></button>
+    <button class="category-board category-board-create" @click="categoryDialogVisible = true"><el-icon><Plus /></el-icon> 新建板块</button>
+  </div>
+</div>
+<!-- 最近文档列表（工作台视图） -->
           <div class="list-section" v-if="!showDocLibrary">
             <div class="section-header">
               <span class="section-title">我的云端文档 <span class="count">({{ docList.length }})</span></span>
@@ -973,9 +981,7 @@ const goToAIOps = () => {
 .nav-item.ai-chat-nav { color: #74698e; }
 .nav-item.ai-chat-nav:hover { background: #f1edf7; color: #615778; }
 .nav-item.toolbox-nav { color: #6d8a64; }
-.nav-item.toolbox-nav:hover { background: #edf4e2; color: #5d7755; }
-
-.aside-bottom { padding: 16px; border-top: 1px solid #dee0e3; }
+.nav-item.toolbox-nav:hover { background: #edf4e2; color: #5d7755; }.aside-bottom { padding: 16px; border-top: 1px solid #dee0e3; }
 .user-profile { display: flex; align-items: center; gap: 10px; padding: 8px; cursor: pointer; border-radius: 8px; transition: 0.2s; }
 .user-profile:hover { background: #f2f3f5; }
 .username { font-size: 14px; font-weight: 500; color: #1f2329;}
@@ -1038,7 +1044,11 @@ const goToAIOps = () => {
 .library-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; }
 .library-title { font-size: 24px; font-weight: 700; color: #1f2329; display: flex; align-items: center; gap: 10px; margin: 0 0 6px; }
 .library-subtitle { font-size: 14px; color: #8f959e; margin: 0; }
-.library-actions { display: flex; gap: 12px; align-items: center; }.category-boards { display: flex; flex-wrap: wrap; gap: 10px; margin: -8px 0 22px; }
+.library-actions { display: flex; gap: 12px; align-items: center; }.category-boards { display: flex; flex-wrap: wrap; gap: 10px; margin: -8px 0 22px; }.workbench-category-section { margin: 0 0 28px; padding: 18px 20px; border: 1px solid #e9e3ed; border-radius: 16px; background: linear-gradient(135deg, #fff 0%, #fbf9fc 100%); }
+.workbench-category-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.workbench-category-title { color: #4f4658; font-size: 16px; font-weight: 700; }
+.workbench-category-subtitle { margin-left: 10px; color: #9a909f; font-size: 12px; }
+.workbench-category-boards { margin: 0; }
 .category-board { min-height: 38px; border: 1px solid #e5dfeb; border-radius: 12px; background: #fff; color: #5f5870; padding: 0 13px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font: inherit; transition: all .2s ease; }
 .category-board:hover, .category-board.active { border-color: #a99ac2; background: #f5f1f7; color: #70618c; box-shadow: 0 4px 12px rgba(123, 104, 157, .12); }
 .category-board strong { color: #8b7aa7; font-size: 12px; font-weight: 700; }
