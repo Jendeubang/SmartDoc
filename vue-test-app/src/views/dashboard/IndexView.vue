@@ -526,6 +526,9 @@ const fetchUser = async () => {
     await loadAvatar(user.avatarFileId)
   } catch (e) { currentUserName.value = 'User' }
 }
+const handleUserProfileStorage = event => {
+  if (event.key === STORAGE_KEYS.USER_INFO) fetchUser()
+}
 const resetProfileForm = () => {
   profileSaving.value = false
   avatarFile.value = null
@@ -628,7 +631,7 @@ const changeLibraryScope = async scope => {
   else if (scope === 'all' || scope === 'favorite') await fetchFiles()
 }
 
-onBeforeUnmount(() => { releaseThumbnails(); releaseAvatarUrl(); if (profileAvatarPreview.value) URL.revokeObjectURL(profileAvatarPreview.value) })
+onBeforeUnmount(() => { window.removeEventListener('storage', handleUserProfileStorage); releaseThumbnails(); releaseAvatarUrl(); if (profileAvatarPreview.value) URL.revokeObjectURL(profileAvatarPreview.value) })
 
 const fetchCategories = async () => {
   try {
@@ -662,7 +665,7 @@ const fetchModels = async () => {
   }
 }
 
-onMounted(() => { fetchUser(); fetchFiles(); fetchModels(); fetchCategories() })
+onMounted(() => { window.addEventListener('storage', handleUserProfileStorage); fetchUser(); fetchFiles(); fetchModels(); fetchCategories() })
 
 const categoryOptions = computed(() => [...new Set([
   ...categories.value.map(category => category.name).filter(Boolean),
