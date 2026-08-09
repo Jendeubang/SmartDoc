@@ -147,8 +147,8 @@
         <el-button circle icon="Clock" size="small" style="margin-left:10px;" @click="openHistoryDrawer"></el-button>
       </div>
       <div class="header-right">
-        <el-button type="primary" size="small" round icon="Check" @click="handleManualSave" :loading="isSaving">手动保存</el-button>
-        <el-button size="small" round icon="Download" @click="handleDownload">下载最新版</el-button>
+        <el-button v-if="!isImageDocument" type="primary" size="small" round icon="Check" @click="handleManualSave" :loading="isSaving">手动保存</el-button>
+        <el-button size="small" round icon="Download" @click="handleDownload">{{ isImageDocument ? '下载原图' : '下载最新版' }}</el-button>
         <el-button type="primary" size="small" round icon="Share" @click="shareDialogVisible = true">协作</el-button>
         <el-avatar :size="30" style="background-color: #3370ff; font-weight: bold; color: white; margin-left:10px;">{{ currentUserName.charAt(0).toUpperCase() }}</el-avatar>
       </div>
@@ -236,8 +236,23 @@
       </aside>
 
       <main class="editor-main" v-loading="docLoading" @scroll="handleScroll">
-        <div class="paper-container">
-          <div class="paper preserve-format" contenteditable="true" v-html="docContent" @mouseup="handleTextSelection" @input="handleInput"></div>
+        <div class="paper-container" :class="{ 'image-paper-container': isImageDocument }">
+          <div v-if="isImageDocument" class="image-viewer">
+            <div class="image-viewer-toolbar">
+              <span><el-icon><Picture /></el-icon> 图片预览</span>
+              <div class="image-viewer-actions">
+                <el-button circle size="small" title="缩小" @click="zoomImage(-0.1)"><el-icon><Minus /></el-icon></el-button>
+                <span class="image-zoom-value">{{ Math.round(imageZoom * 100) }}%</span>
+                <el-button circle size="small" title="放大" @click="zoomImage(0.1)"><el-icon><Plus /></el-icon></el-button>
+                <el-button size="small" plain @click="fitImage">适应窗口</el-button>
+              </div>
+            </div>
+            <div class="image-canvas">
+              <img v-if="imagePreviewUrl" :src="imagePreviewUrl" :alt="docName" :style="{ transform: `scale(${imageZoom})` }" />
+              <el-empty v-else description="图片加载失败，请下载原图查看" />
+            </div>
+          </div>
+          <div v-else class="paper preserve-format" contenteditable="true" v-html="docContent" @mouseup="handleTextSelection" @input="handleInput"></div>
         </div>
 
         <transition name="el-zoom-in-center">
@@ -357,7 +372,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { fileApi } from '../../api/file'
 import { userApi } from '../../api/user'
@@ -377,6 +392,9 @@ const chatTitle = ref('新对话'); const isInputFocused = ref(false); const isS
 const docName = ref(sessionStorage.getItem('currentDocName') || '未命名文档'); const currentUserName = ref('User')
 const currentUserId = ref(localStorage.getItem('userId') || '')
 const docContent = ref(''); const docLoading = ref(false); const aiSummary = ref('')
+const sourceFileId = ref(''); const imagePreviewUrl = ref(''); const imageZoom = ref(1)
+const imageExtensions = /\.(?:avif|bmp|gif|jpe?g|png|svg|webp)$/i
+const isImageDocument = computed(() => Boolean(sourceFileId.value) && imageExtensions.test(docName.value || ''))
 const userMsg = ref(''); const isAiThinking = ref(false); const chatHistory = ref([]); const currentConvId = ref('')
 const chatFileInputRef = ref(null); const chatUploadLoading = ref(false)
 const chatDocuments = ref([]); const chatDocumentsLoading = ref(false); const selectedChatDocumentIds = ref([])
@@ -456,6 +474,35 @@ const segments = ref([])
 const indexing = ref(false)
 const currentModel = ref('deepseek-chat') // 默认 DeepSeek Chat
 const modelOptions = ref([])
+const clearImagePreview = () => {
+  if (imagePreviewUrl.value) {
+    URL.revokeObjectURL(imagePreviewUrl.value)
+    imagePreviewUrl.value = ''
+  }
+}
+
+const loadImagePreview = async () => {
+  clearImagePreview()
+  if (!sourceFileId.value) return
+  try {
+    const imageBlob = await fileApi.preview(sourceFileId.value)
+    imagePreviewUrl.value = URL.createObjectURL(imageBlob)
+    imageZoom.value = 1
+  } catch (error) {
+    console.error('图片预览加载失败', error)
+    ElMessage.error('图片预览加载失败，可下载原图查看')
+  }
+}
+
+const zoomImage = (delta) => {
+  imageZoom.value = Math.min(3, Math.max(0.2, Number((imageZoom.value + delta).toFixed(1))))
+}
+
+const fitImage = () => {
+  imageZoom.value = 1
+}
+
+onBeforeUnmount(clearImagePreview)
 
 // 获取可用模型列表
 const fetchModels = async () => {
@@ -525,6 +572,8 @@ const loadDocData = async () => {
     const docRes = await docApi.getDocDetail(docId)
     const data = docRes.data || docRes
     docName.value = data.title; aiSummary.value = data.summary; docContent.value = data.content || ''
+    sourceFileId.value = data.fileId || ''
+    if (isImageDocument.value) await loadImagePreview()
 
     // 如果文档有内容，并行去请求“文本分析(字数统计)”接口
     if (data.content && data.content.length > 5) {
@@ -1155,6 +1204,14 @@ const handleDownload = async () => {
   isSaving.value = true
   saveStatusText.value = '正在导出最新版...'
   try {
+    if (isImageDocument.value && sourceFileId.value) {
+      const originalImage = await fileApi.download(sourceFileId.value)
+      downloadBlob(originalImage, docName.value || 'image')
+      ElMessage.success('原图已开始下载')
+      saveStatusText.value = '已同步'
+      return
+    }
+
     // 获取 A4 纸里的纯文本（innerText 会自动保留换行和空格）
     const latestText = document.querySelector('.paper').innerText
 
@@ -1439,6 +1496,16 @@ const scrollToBottom = () => { nextTick(() => {
 .workspace { flex: 1; display: flex; overflow: hidden; position: relative; }
 .editor-main { flex: 1; overflow-y: auto; display: flex; justify-content: center; padding: 50px 0; background: #f0f2f5; position: relative; }
 .paper-container { position: relative; }
+.image-paper-container { width: min(940px, 100%); }
+.image-viewer { width: 100%; min-height: 620px; overflow: hidden; border: 1px solid rgba(232, 224, 232, .9); border-radius: 16px; background: #fffdf9; box-shadow: 0 18px 44px rgba(71, 61, 80, .11); }
+.image-viewer-toolbar { min-height: 62px; padding: 0 20px; border-bottom: 1px solid #e9e1e9; display: flex; align-items: center; justify-content: space-between; gap: 16px; color: var(--editor-ink); font-size: 14px; font-weight: 700; }
+.image-viewer-toolbar > span { display: inline-flex; align-items: center; gap: 8px; }
+.image-viewer-toolbar .el-icon { color: var(--editor-lavender-deep); }
+.image-viewer-actions { display: inline-flex; align-items: center; gap: 8px; }
+.image-zoom-value { min-width: 46px; text-align: center; color: var(--editor-muted); font-size: 12px; font-weight: 600; }
+.image-canvas { min-height: 558px; padding: 36px; display: grid; place-items: center; overflow: auto; background-color: #f7f5f2; background-image: linear-gradient(45deg, #eee9e7 25%, transparent 25%), linear-gradient(-45deg, #eee9e7 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #eee9e7 75%), linear-gradient(-45deg, transparent 75%, #eee9e7 75%); background-size: 24px 24px; background-position: 0 0, 0 12px, 12px -12px, -12px 0; }
+.image-canvas img { max-width: min(100%, 820px); max-height: 920px; object-fit: contain; border-radius: 8px; box-shadow: 0 14px 30px rgba(63, 52, 71, .18); transform-origin: center; transition: transform .18s ease; }
+@media (max-width: 680px) { .image-viewer { min-height: 460px; } .image-viewer-toolbar { padding: 10px 12px; align-items: flex-start; flex-direction: column; } .image-canvas { min-height: 390px; padding: 20px; } }
 .paper { width: 780px; min-height: 1100px; background: #fff; padding: 80px 100px; box-shadow: 0 4px 16px rgba(0,0,0,0.06); outline: none; line-height: 1.8; font-size: 16px; color: #1f2329; }
 
 .ai-sidebar { width: 360px; background: #fff; border-left: 1px solid #dee0e3; display: flex; flex-direction: column; height: 100%; flex-shrink: 0;}
