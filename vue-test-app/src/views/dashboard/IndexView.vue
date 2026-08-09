@@ -88,6 +88,7 @@
 
             <!-- 快捷胶囊按钮 -->
             <div class="quick-prompts">
+              <div class="prompt-pill" @click="newDocDialogVisible = true"><el-icon><EditPen /></el-icon> 新建文档</div>
               <div class="prompt-pill" @click="triggerUpload"><el-icon><Upload /></el-icon> 上传文档</div>
               <div class="prompt-pill" @click="pptDialogVisible = true"><el-icon><Monitor /></el-icon> 一键生成 PPT</div>
               <div class="prompt-pill" @click="goToAiChat"><el-icon><ChatLineSquare /></el-icon> 开启对话</div>
@@ -110,6 +111,7 @@
                 <el-select v-if="libraryScope !== 'trash'" v-model="categoryFilter" size="small" clearable placeholder="全部分类" style="width: 120px">
                   <el-option v-for="category in categoryOptions" :key="category" :label="category" :value="category" />
                 </el-select>
+                <el-button v-if="libraryScope !== 'trash'" size="small" icon="EditPen" @click="newDocDialogVisible = true">新建文档</el-button>
                 <el-button v-if="libraryScope !== 'trash'" type="primary" size="small" icon="Upload" @click="triggerUpload">上传文档</el-button>
                 <el-input
                     v-model="search"
@@ -206,6 +208,7 @@
             <div class="section-header">
               <span class="section-title">我的云端文档 <span class="count">({{ docList.length }})</span></span>
               <div class="header-actions">
+                <el-button size="small" icon="EditPen" @click="newDocDialogVisible = true">新建文档</el-button>
                 <el-button type="danger" size="small" plain icon="Delete" @click="clearDirtyData">一键清理文档</el-button>
                 <el-input
                     v-model="search"
@@ -274,6 +277,36 @@
       </el-main>
     </el-container>
 
+    <el-dialog v-model="newDocDialogVisible" title="新建文档" width="680px" destroy-on-close @closed="resetNewDocumentForm">
+      <el-form :model="newDocForm" label-position="top">
+        <el-alert title="粘贴或输入文字后，SmartDoc 会生成原始 TXT 或 Word 文档，并同步保存到云端文档库。" type="info" :closable="false" show-icon style="margin-bottom: 16px" />
+        <el-form-item label="文档名称" required>
+          <el-input v-model="newDocForm.title" maxlength="80" show-word-limit placeholder="例如：会议纪要、项目周报" />
+        </el-form-item>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="生成格式">
+              <el-radio-group v-model="newDocForm.format">
+                <el-radio-button label="txt">TXT 文本</el-radio-button>
+                <el-radio-button label="docx">Word 文档</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="文档分类">
+              <el-input v-model="newDocForm.category" maxlength="30" placeholder="默认分类" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item label="文档正文" required>
+          <el-input v-model="newDocForm.content" type="textarea" :rows="12" maxlength="50000" show-word-limit resize="none" placeholder="在这里粘贴或输入文字内容，支持多段落。按 Ctrl + Enter 可直接生成。" @keyup.ctrl.enter="saveNewDocument" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="newDocDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="newDocSaving" @click="saveNewDocument">生成并保存</el-button>
+      </template>
+    </el-dialog>
     <!-- PPT 生成器弹窗 -->
     <el-dialog v-model="pptDialogVisible" title="🎨 HTML PPT 生成器" width="600px" destroy-on-close>
       <el-form :model="pptForm" label-position="top">
@@ -336,6 +369,7 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Document as WordDocument, Packer, Paragraph, TextRun } from 'docx'
 import { fileApi } from '../../api/file'
 import { userApi } from '../../api/user'
 import { docApi } from '../../api/document'
@@ -358,6 +392,9 @@ const modelsLoading = ref(false)
 const aiModelsList = ref([])
 const pptDialogVisible = ref(false)
 const pptLoading = ref(false)
+const newDocDialogVisible = ref(false)
+const newDocSaving = ref(false)
+const newDocForm = ref({ title: '', content: '', format: 'txt', category: '默认分类' })
 const pptForm = ref({
   title: 'DocAI 项目',
   theme: 'tokyo-night',
@@ -555,6 +592,70 @@ const onFileSelected = async (event) => {
   }
 }
 
+const resetNewDocumentForm = () => {
+  newDocSaving.value = false
+  newDocForm.value = { title: '', content: '', format: 'txt', category: '默认分类' }
+}
+
+const buildNewDocumentFile = async () => {
+  const format = newDocForm.value.format === 'docx' ? 'docx' : 'txt'
+  const title = newDocForm.value.title.trim()
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .replace(/\.(txt|docx)$/i, '') || '未命名文档'
+  const fileName = `${title}.${format}`
+  const content = newDocForm.value.content.replace(/\r\n/g, '\n')
+
+  if (format === 'txt') {
+    return new File([`\uFEFF${content}`], fileName, { type: 'text/plain;charset=utf-8' })
+  }
+
+  const paragraphs = content.split('\n').map(line => new Paragraph({
+    children: line ? [new TextRun({ text: line })] : []
+  }))
+  const wordDocument = new WordDocument({
+    sections: [{ children: paragraphs.length ? paragraphs : [new Paragraph('')] }]
+  })
+  const blob = await Packer.toBlob(wordDocument)
+  return new File([blob], fileName, {
+    type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  })
+}
+
+const saveNewDocument = async () => {
+  if (!newDocForm.value.content.trim()) {
+    ElMessage.warning('请先粘贴或输入文档正文')
+    return
+  }
+  if (!newDocForm.value.title.trim()) {
+    ElMessage.warning('请填写文档名称')
+    return
+  }
+
+  newDocSaving.value = true
+  loading.value = true
+  try {
+    const rawFile = await buildNewDocumentFile()
+    const fileRes = await fileApi.upload(rawFile)
+    const fileId = fileRes?.data?.fileId || fileRes?.data?.id
+    if (!fileId) throw new Error('文档生成后未返回文件标识')
+
+    await docApi.createDoc({
+      title: rawFile.name,
+      fileId,
+      content: newDocForm.value.content,
+      category: newDocForm.value.category.trim() || '默认分类'
+    })
+    newDocDialogVisible.value = false
+    await fetchFiles()
+    ElMessage.success(`《${rawFile.name}》已生成并保存到云端文档库`)
+  } catch (error) {
+    console.error('新建文档失败', error)
+    ElMessage.error(error?.response?.data?.message || '文档生成失败，请稍后重试')
+  } finally {
+    newDocSaving.value = false
+    loading.value = false
+  }
+}
 const downloadBlob = (blob, fileName) => {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
