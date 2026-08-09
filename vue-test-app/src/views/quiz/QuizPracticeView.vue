@@ -27,11 +27,18 @@
         </section>
 
         <section v-else class="practice-card">
-          <div class="practice-top"><div><button class="plain-back" @click="leaveSet"><el-icon><ArrowLeft /></el-icon> 练题集</button><h2>{{ activeSet.title }}</h2><p>{{ activeSet.sourceNames?.join('、') || '已保存练题集' }}</p></div><div class="score-chip">正确 {{ correctCount }} / {{ activeSet.questions.length }}</div></div>
+          <div class="practice-top"><div><button class="plain-back" @click="leaveSet"><el-icon><ArrowLeft /></el-icon> 练题集</button><h2>{{ activeSet.title }}</h2><p>{{ activeSet.sourceNames?.join('、') || '已保存练题集' }}</p></div><div class="practice-actions"><div class="score-chip">已答 {{ answeredCount }} · 正确 {{ correctCount }} · {{ accuracy }}%</div><el-button size="small" plain @click="exportReport">导出报告</el-button><el-button size="small" plain type="danger" @click="resetProgress">重置进度</el-button></div></div>
           <div class="type-summary"><button v-for="item in typeSummary" :key="item.type" :class="{ active: activeFilter === item.type }" @click="setTypeFilter(item.type)"><span>{{ item.label }}</span><strong>{{ item.count }}</strong></button></div>
+          <div class="practice-filters">
+            <el-select v-model="practiceMode" size="small" style="width: 126px"><el-option label="全部题目" value="all" /><el-option label="未作答" value="unanswered" /><el-option label="错题本" value="wrong" /><el-option label="我的收藏" value="favorite" /></el-select>
+            <el-select v-model="sourceFilter" clearable size="small" placeholder="来源文档" style="width: 180px"><el-option v-for="source in questionSources" :key="source" :label="source" :value="source" /></el-select>
+            <el-select v-model="difficultyFilter" clearable size="small" placeholder="难度" style="width: 110px"><el-option label="基础" value="easy" /><el-option label="进阶" value="medium" /><el-option label="挑战" value="hard" /></el-select>
+            <span class="progress-label">完成 {{ completionRate }}%</span><el-progress :percentage="completionRate" :show-text="false" />
+          </div>
+          <div v-if="answeredCount && answeredCount === activeSet.questions.length" class="completion-banner">本轮练习已完成：正确率 {{ accuracy }}%，错题 {{ wrongCount }} 道。可切换到“错题本”集中复习。</div>
           <div class="question-nav"><button v-for="(question, index) in visibleQuestions" :key="question.id" :class="{ active: activeQuestion?.id === question.id, done: feedbackById[question.id] }" @click="activeIndex = index">{{ index + 1 }}</button></div>
           <article v-if="activeQuestion" class="question-card">
-            <div class="question-meta"><span class="type-badge">{{ typeName(activeQuestion.type) }}</span><span>第 {{ activeIndex + 1 }} / {{ visibleQuestions.length }} 题</span></div>
+            <div class="question-meta"><div><span class="type-badge">{{ typeName(activeQuestion.type) }}</span><span class="difficulty-badge">{{ difficultyName(activeQuestion.difficulty) }}</span><span class="source-badge">{{ activeQuestion.sourceName || '未标注来源' }}</span></div><div><button class="favorite-button" :class="{ active: favoriteIds.includes(activeQuestion.id) }" @click="toggleFavorite(activeQuestion.id)">{{ favoriteIds.includes(activeQuestion.id) ? '★ 已收藏' : '☆ 收藏' }}</button><span>第 {{ activeIndex + 1 }} / {{ visibleQuestions.length }} 题</span></div></div>
             <h3>{{ activeQuestion.stem }}</h3>
 
             <el-radio-group v-if="['single', 'judge'].includes(activeQuestion.type)" v-model="answerSheet[activeQuestion.id]" class="option-list" :disabled="Boolean(feedbackById[activeQuestion.id])"><el-radio v-for="option in normalizedOptions(activeQuestion)" :key="option.key" :label="option.key" border><strong>{{ option.key }}.</strong> {{ option.label }}</el-radio></el-radio-group>
@@ -72,6 +79,10 @@ const activeIndex = ref(0)
 const activeFilter = ref('all')
 const answerSheet = ref({})
 const feedbackById = ref({})
+const favoriteIds = ref([])
+const practiceMode = ref('all')
+const sourceFilter = ref('')
+const difficultyFilter = ref('')
 
 const typeConfig = { single: '选择题', multiple: '多选题', fill: '填空题', judge: '判断题', short: '简答题' }
 const savedSets = computed(() => documents.value.filter(doc => doc.category === 'quiz-set'))
@@ -82,19 +93,32 @@ const typeSummary = computed(() => {
   Object.entries(typeConfig).forEach(([type, label]) => { const count = all.filter(question => question.type === type).length; if (count) items.push({ type, label, count }) })
   return items
 })
+const questionSources = computed(() => [...new Set((activeSet.value?.questions || []).map(question => question.sourceName || '未标注来源'))])
 const visibleQuestions = computed(() => {
-  const questions = activeSet.value?.questions || []
-  return activeFilter.value === 'all' ? questions : questions.filter(question => question.type === activeFilter.value)
+  let questions = activeSet.value?.questions || []
+  if (activeFilter.value !== 'all') questions = questions.filter(question => question.type === activeFilter.value)
+  if (sourceFilter.value) questions = questions.filter(question => (question.sourceName || '未标注来源') === sourceFilter.value)
+  if (difficultyFilter.value) questions = questions.filter(question => question.difficulty === difficultyFilter.value)
+  if (practiceMode.value === 'unanswered') questions = questions.filter(question => !feedbackById.value[question.id])
+  if (practiceMode.value === 'wrong') questions = questions.filter(question => feedbackById.value[question.id] && !feedbackById.value[question.id].correct)
+  if (practiceMode.value === 'favorite') questions = questions.filter(question => favoriteIds.value.includes(question.id))
+  return questions
 })
 const activeQuestion = computed(() => visibleQuestions.value[activeIndex.value])
+const answeredCount = computed(() => Object.keys(feedbackById.value).length)
 const correctCount = computed(() => Object.values(feedbackById.value).filter(item => item.correct).length)
+const wrongCount = computed(() => answeredCount.value - correctCount.value)
+const accuracy = computed(() => answeredCount.value ? Math.round(correctCount.value * 100 / answeredCount.value) : 0)
+const completionRate = computed(() => activeSet.value?.questions?.length ? Math.round(answeredCount.value * 100 / activeSet.value.questions.length) : 0)
 
 function data(response) { return response?.data ?? response ?? {} }
 function userId() { return localStorage.getItem('userId') }
 function formatDate(value) { return value ? String(value).replace('T', ' ').slice(0, 10) : '刚刚创建' }
 function typeName(type) { return typeConfig[type] || '简答题' }
+function difficultyName(value) { return ({ easy: '基础', medium: '进阶', hard: '挑战' })[value] || '进阶' }
+function inferDifficulty(question) { if (question.type === 'short' || String(question.stem || '').length > 90) return 'hard'; if (question.type === 'multiple' || String(question.stem || '').length > 45) return 'medium'; return 'easy' }
 function normalize(value) { return String(value ?? '').toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '') }
-function startNewSet() { activeSet.value = null; activeIndex.value = 0; activeFilter.value = 'all'; answerSheet.value = {}; feedbackById.value = {}; router.push('/quiz') }
+function startNewSet() { activeSet.value = null; activeIndex.value = 0; activeFilter.value = 'all'; practiceMode.value = 'all'; sourceFilter.value = ''; difficultyFilter.value = ''; answerSheet.value = {}; feedbackById.value = {}; favoriteIds.value = []; router.push('/quiz') }
 function leaveSet() { activeSet.value = null; router.push('/quiz') }
 function setTypeFilter(type) { activeFilter.value = type; activeIndex.value = 0 }
 function normalizedOptions(question) {
@@ -120,7 +144,9 @@ function normalizeQuestion(raw, index) {
   if (type === 'judge' && !options.length) raw.options = [{ key: 'true', label: '正确' }, { key: 'false', label: '错误' }]
   if ((type === 'single' || type === 'multiple') && options.length < 2) type = 'short'
   const answer = raw.answer ?? raw.referenceAnswer ?? raw.correctAnswer ?? ''
-  return { id: String(raw.id || `q-${index + 1}`), type, stem: String(raw.stem || raw.question || raw.title || '').trim(), options: raw.options || options, answer: Array.isArray(answer) ? answer.map(String) : String(answer), analysis: String(raw.analysis || raw.explanation || '请结合参考答案复习对应知识点。') }
+  const normalized = { id: String(raw.id || `q-${index + 1}`), type, stem: String(raw.stem || raw.question || raw.title || '').trim(), options: raw.options || options, answer: Array.isArray(answer) ? answer.map(String) : String(answer), analysis: String(raw.analysis || raw.explanation || '请结合参考答案复习对应知识点。'), sourceName: String(raw.sourceName || '未标注来源'), sourceDocumentId: raw.sourceDocumentId ? String(raw.sourceDocumentId) : '', difficulty: raw.difficulty || '' }
+  normalized.difficulty = normalized.difficulty || inferDifficulty(normalized)
+  return normalized
 }
 function parseModelQuestions(result) {
   const text = typeof result === 'string' ? result : (result?.finalAnswer || result?.answer || result?.content || JSON.stringify(result || ''))
@@ -185,6 +211,41 @@ function extractQuestionAnswerPairs(content, sourceName, offset = 0) {
     return normalizeQuestion({ id: `source-${offset + index + 1}`, type: 'short', stem, answer: answerText, analysis: `答案提取自《${sourceName}》。` }, offset + index)
   }).filter(Boolean)
 }
+function practiceStorageKey(id = activeSet.value?.id) { return id ? `smartdoc_quiz_progress_${userId() || 'guest'}_${id}` : '' }
+function loadPracticeState(id) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(practiceStorageKey(id)) || '{}')
+    answerSheet.value = saved.answerSheet || {}
+    feedbackById.value = saved.feedbackById || {}
+    favoriteIds.value = Array.isArray(saved.favoriteIds) ? saved.favoriteIds : []
+  } catch { answerSheet.value = {}; feedbackById.value = {}; favoriteIds.value = [] }
+}
+function persistPracticeState() {
+  const key = practiceStorageKey()
+  if (!key) return
+  localStorage.setItem(key, JSON.stringify({ answerSheet: answerSheet.value, feedbackById: feedbackById.value, favoriteIds: favoriteIds.value, updatedAt: new Date().toISOString() }))
+}
+function toggleFavorite(questionId) {
+  favoriteIds.value = favoriteIds.value.includes(questionId) ? favoriteIds.value.filter(id => id !== questionId) : [...favoriteIds.value, questionId]
+}
+async function resetProgress() {
+  try {
+    await ElMessageBox.confirm('确定清空本练题集的答案、错题和收藏记录吗？题目不会被删除。', '重置练习进度', { confirmButtonText: '重置', cancelButtonText: '取消', type: 'warning' })
+    answerSheet.value = {}; feedbackById.value = {}; favoriteIds.value = []; activeIndex.value = 0; practiceMode.value = 'all'
+    localStorage.removeItem(practiceStorageKey())
+    ElMessage.success('练习进度已重置')
+  } catch { /* cancelled */ }
+}
+function exportReport() {
+  if (!activeSet.value) return
+  const wrong = activeSet.value.questions.filter(question => feedbackById.value[question.id] && !feedbackById.value[question.id].correct)
+  const lines = [`# ${activeSet.value.title} - 练习报告`, '', `- 导出时间：${new Date().toLocaleString()}`, `- 题目总数：${activeSet.value.questions.length}`, `- 已答：${answeredCount.value}`, `- 正确：${correctCount.value}`, `- 错题：${wrongCount.value}`, `- 正确率：${accuracy.value}%`, '', '## 错题明细', '']
+  wrong.forEach((question, index) => { lines.push(`${index + 1}. ${question.stem}`, `   - 我的答案：${Array.isArray(answerSheet.value[question.id]) ? answerSheet.value[question.id].join('、') : answerSheet.value[question.id] || '未作答'}`, `   - 正确答案：${displayAnswer(question)}`, `   - 来源：${question.sourceName || '未标注来源'}`, '') })
+  if (!wrong.length) lines.push('本次暂无错题。')
+  const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' })
+  const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `${activeSet.value.title}-练习报告.md`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 500)
+  ElMessage.success('练习报告已导出')
+}
 async function loadDocuments() {
   if (!userId()) { router.push('/login'); return }
   loading.value = true
@@ -197,7 +258,7 @@ async function openSet(id) {
     const saved = JSON.parse(detail.content || '{}')
     if (!Array.isArray(saved.questions) || !saved.questions.length) throw new Error('该练题集内容无效')
     activeSet.value = { ...saved, id: String(id), title: saved.title || detail.title, questions: saved.questions.map(normalizeQuestion) }
-    activeIndex.value = 0; activeFilter.value = 'all'; answerSheet.value = {}; feedbackById.value = {}
+    activeIndex.value = 0; activeFilter.value = 'all'; practiceMode.value = 'all'; sourceFilter.value = ''; difficultyFilter.value = ''; loadPracticeState(String(id))
     if (route.params.id !== String(id)) router.push(`/quiz/${id}`)
   } catch (error) { ElMessage.error(error?.message || '打开练题集失败') } finally { loading.value = false }
 }
@@ -205,6 +266,7 @@ async function deleteSet(set) {
   try {
     await ElMessageBox.confirm(`确定删除练题集“${set.title}”吗？原始题库文档不会被删除。`, '删除练题集', { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' })
     await docApi.deleteDoc(set.id)
+    localStorage.removeItem(practiceStorageKey(String(set.id)))
     if (activeSet.value?.id === String(set.id)) { activeSet.value = null; router.push('/quiz') }
     await loadDocuments()
     ElMessage.success('练题集已删除')
@@ -248,7 +310,7 @@ async function createQuizSet() {
     let questions = []
     let offset = 0
     for (const source of sources) {
-      const extracted = extractQuestionAnswerPairs(source.content, source.name, offset)
+      const extracted = extractQuestionAnswerPairs(source.content, source.name, offset).map(question => ({ ...question, sourceName: source.name, sourceDocumentId: source.id, difficulty: question.difficulty || inferDifficulty(question) }))
       questions.push(...extracted)
       offset += extracted.length
     }
@@ -256,7 +318,7 @@ async function createQuizSet() {
       const merged = sources.map((source, index) => `【文档 ${index + 1}：${source.name}】\n${source.content.slice(0, 6000)}`).join('\n\n').slice(0, 12000)
       const prompt = `请从以下资料中制作最多 12 道练习题。题型只能是 single（单选）、multiple（多选）、fill（填空）、judge（判断）、short（简答）。选择题必须提供 options，options 为 [{"key":"A","label":"选项内容"}]；判断题 options 固定为正确/错误。答案为选择题的 key、判断题 true 或 false、填空/简答为标准答案。只输出 JSON 数组，不要 Markdown。每一项格式：{"type":"single","stem":"题干","options":[{"key":"A","label":"..."}],"answer":"A","analysis":"解析"}。题目和答案必须依据资料，不要编造。\n\n资料：\n${merged}`
       const generated = data(await aiApi.executeAgent({ task: prompt, context: { source: 'quiz-set-builder', model: 'deepseek-chat' } }))
-      questions = parseModelQuestions(generated)
+      questions = parseModelQuestions(generated).map(question => ({ ...question, sourceName: 'AI 综合题', difficulty: question.difficulty || inferDifficulty(question) }))
     }
     if (!questions.length) throw new Error('未能提取到题目和答案；请确认文档中包含“问：…答：…”或可读正文')
 
@@ -281,6 +343,19 @@ function objectiveCorrect(question, answer) {
   const actual = normalize(answer)
   return actual === expected || (question.type === 'fill' && (expected.includes(actual) || actual.includes(expected)))
 }
+function localShortAnswerScore(expected, actual) {
+  const tokenize = value => {
+    const text = String(value || '').toLowerCase()
+    const tokens = text.replace(/[^p{L}p{N}]+/gu, ' ').split(/s+/).filter(token => token.length > 1)
+    const chinese = (text.match(/[㐀-鿿]/g) || []).join('')
+    for (let index = 0; index < chinese.length - 1; index++) tokens.push(chinese.slice(index, index + 2))
+    return new Set(tokens)
+  }
+  const expectedTokens = tokenize(expected); const actualTokens = tokenize(actual)
+  if (!expectedTokens.size || !actualTokens.size) return 0
+  let overlap = 0; actualTokens.forEach(token => { if (expectedTokens.has(token)) overlap++ })
+  return Math.min(100, Math.round((overlap * 2 / (expectedTokens.size + actualTokens.size)) * 100))
+}
 async function submitAnswer() {
   const question = activeQuestion.value
   if (!question) return
@@ -300,12 +375,19 @@ async function submitAnswer() {
     if (!match) throw new Error('AI 未返回判定结果')
     const result = JSON.parse(match[0])
     feedbackById.value = { ...feedbackById.value, [question.id]: { correct: Boolean(result.correct), score: Number(result.score || 0), message: result.message || question.analysis } }
-  } catch (error) { ElMessage.error(error?.message || '答案判定失败') } finally { judging.value = false }
+  } catch (error) {
+    const score = localShortAnswerScore(question.answer, answer)
+    feedbackById.value = { ...feedbackById.value, [question.id]: { correct: score >= 70, score, message: 'AI 判定暂不可用，已使用关键词相似度降级评分（' + (error?.message || '服务异常') + '）。' } }
+    ElMessage.warning('AI 判定暂不可用，已完成本地降级评分')
+  } finally { judging.value = false }
 }
+watch([activeFilter, practiceMode, sourceFilter, difficultyFilter], () => { activeIndex.value = 0 })
+watch(() => visibleQuestions.value.length, length => { if (activeIndex.value >= length) activeIndex.value = Math.max(0, length - 1) })
+watch([answerSheet, feedbackById, favoriteIds], persistPracticeState, { deep: true })
 watch(() => route.params.id, async id => { if (id && (!activeSet.value || activeSet.value.id !== String(id))) await openSet(String(id)); if (!id && activeSet.value) activeSet.value = null })
 onMounted(async () => { await loadDocuments(); if (route.params.id) await openSet(String(route.params.id)) })
 </script>
 
 <style scoped>
-.quiz-page{min-height:100vh;padding:30px 34px 42px;background:#fbfaf8;color:#423c4b;font-family:"Microsoft YaHei",sans-serif}.quiz-header{max-width:1420px;margin:0 auto 22px;display:flex;justify-content:space-between;align-items:center;gap:20px}.back-link,.plain-back{border:0;background:transparent;padding:0;color:#817794;cursor:pointer;font-size:13px;display:inline-flex;align-items:center;gap:5px}.title-row{display:flex;align-items:center;gap:13px;margin-top:11px}.title-mark{width:46px;height:46px;border-radius:15px;display:grid;place-items:center;background:#a16f87;color:#fff;font-size:21px;box-shadow:0 8px 20px #a16f8755}.title-row h1{margin:0 0 5px;font-size:25px}.title-row p{margin:0;color:#948da0;font-size:13px}.quiz-layout{max-width:1420px;margin:auto;display:grid;grid-template-columns:260px minmax(0,1fr);gap:18px}.set-sidebar,.builder-card,.practice-card{background:#fff;border:1px solid #ebe5ea;border-radius:20px;box-shadow:0 8px 28px #7a6d8a0b}.set-sidebar{padding:15px;height:max-content}.side-heading{display:flex;justify-content:space-between;align-items:center;padding:3px 4px 13px}.side-heading span,.side-heading small{display:block}.side-heading span{font-size:14px;font-weight:700}.side-heading small{font-size:11px;color:#9e96a5;margin-top:3px}.saved-set{width:100%;display:flex;gap:9px;align-items:center;border:0;border-radius:12px;background:transparent;padding:10px 8px;text-align:left;cursor:pointer;color:#756d7d}.saved-set:hover,.saved-set.active{background:#f8f4f8}.saved-set>span:nth-child(2){min-width:0;flex:1}.saved-set strong,.saved-set small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.saved-set strong{font-size:12px;color:#574f61}.saved-set small{font-size:10px;color:#a198a7;margin-top:3px}.set-icon{display:grid;place-items:center;width:28px;height:28px;border-radius:9px;background:#f2e9ee;color:#a16f87}.delete-set{width:26px;height:26px;display:grid;place-items:center;border:0;border-radius:8px;background:transparent;color:#aaa1ad;cursor:pointer;flex:none}.delete-set:hover{background:#f8e7e7;color:#bf6464}.empty-sets{padding:25px 8px;text-align:center;color:#a69eaa;font-size:11px;line-height:1.7}.builder-card,.practice-card{padding:28px}.eyebrow{font-size:10px;letter-spacing:1.5px;color:#a16f87;font-weight:700}.builder-heading h2,.practice-top h2{margin:7px 0;color:#51495b;font-size:23px}.builder-heading p,.practice-top p{font-size:12px;color:#8e8695;line-height:1.7;margin:0}.builder-toolbar{display:flex;gap:10px;margin-top:25px}.builder-toolbar .el-input{flex:1}.hidden-file-input{display:none}.source-tip{font-size:11px;color:#9b92a0;margin:12px 0}.source-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;max-height:380px;overflow:auto;padding:2px}.source-item{height:auto!important;margin:0!important;padding:12px;border:1px solid #eee8ef;border-radius:12px;display:flex!important;align-items:center}.source-name{display:block;max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#5b5261;font-size:12px}.source-item small{display:block;color:#aaa2af;font-size:10px;margin-top:3px}.builder-footer{margin-top:18px;padding-top:15px;border-top:1px dashed #e7e0e7;display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#847b8b}.practice-top{display:flex;align-items:flex-start;justify-content:space-between;gap:15px}.score-chip{padding:8px 12px;border-radius:99px;background:#edf4e2;color:#66805f;font-size:12px;white-space:nowrap}.type-summary{display:flex;gap:8px;flex-wrap:wrap;margin:22px 0 14px}.type-summary button{border:1px solid #ebe4ec;border-radius:10px;background:#faf9fa;color:#807787;padding:8px 10px;cursor:pointer;font-size:11px}.type-summary button strong{margin-left:7px}.type-summary button.active{background:#f3edf6;border-color:#aca0ce;color:#706287}.question-nav{display:flex;gap:7px;overflow:auto;padding-bottom:6px}.question-nav button{flex:none;width:30px;height:30px;border:1px solid #e9e2eb;border-radius:8px;background:#fff;color:#827889;font-size:11px;cursor:pointer}.question-nav button.active{background:#84799f;border-color:#84799f;color:#fff}.question-nav button.done:not(.active){background:#ebf4ed;border-color:#d3e6d7;color:#64836c}.question-card{margin-top:17px;padding:22px;border-radius:16px;background:#fcfbfc;border:1px solid #eee8ef}.question-meta{display:flex;justify-content:space-between;color:#988fa0;font-size:11px}.type-badge{background:#f1e9f1;color:#a16f87;border-radius:99px;padding:3px 8px}.question-card h3{font-size:16px;line-height:1.8;color:#4e4656;margin:16px 0}.option-list{display:flex;flex-direction:column;gap:9px;width:100%}.option-list :deep(.el-radio),.option-list :deep(.el-checkbox){height:auto!important;margin:0!important;padding:10px 12px;white-space:normal;line-height:1.6}.answer-result{margin-top:14px;padding:12px;border-radius:11px;background:#fbefec;color:#9d6059;font-size:12px;line-height:1.65}.answer-result.correct{background:#eaf4ec;color:#577a60}.answer-result strong{margin-right:9px}.answer-result p{margin:5px 0 0}.question-actions{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:16px;font-size:11px;color:#928998}.no-questions{padding:80px 0;text-align:center;color:#a39aa7;font-size:13px}@media(max-width:850px){.quiz-page{padding:20px 14px}.quiz-header{align-items:flex-start}.quiz-layout{grid-template-columns:1fr}.set-sidebar{order:2}.source-list{grid-template-columns:1fr}.builder-toolbar,.practice-top{flex-direction:column}.builder-toolbar .el-button{width:100%}.question-actions{align-items:flex-start;flex-direction:column}}
+.quiz-page{min-height:100vh;padding:30px 34px 42px;background:#fbfaf8;color:#423c4b;font-family:"Microsoft YaHei",sans-serif}.quiz-header{max-width:1420px;margin:0 auto 22px;display:flex;justify-content:space-between;align-items:center;gap:20px}.back-link,.plain-back{border:0;background:transparent;padding:0;color:#817794;cursor:pointer;font-size:13px;display:inline-flex;align-items:center;gap:5px}.title-row{display:flex;align-items:center;gap:13px;margin-top:11px}.title-mark{width:46px;height:46px;border-radius:15px;display:grid;place-items:center;background:#a16f87;color:#fff;font-size:21px;box-shadow:0 8px 20px #a16f8755}.title-row h1{margin:0 0 5px;font-size:25px}.title-row p{margin:0;color:#948da0;font-size:13px}.quiz-layout{max-width:1420px;margin:auto;display:grid;grid-template-columns:260px minmax(0,1fr);gap:18px}.set-sidebar,.builder-card,.practice-card{background:#fff;border:1px solid #ebe5ea;border-radius:20px;box-shadow:0 8px 28px #7a6d8a0b}.set-sidebar{padding:15px;height:max-content}.side-heading{display:flex;justify-content:space-between;align-items:center;padding:3px 4px 13px}.side-heading span,.side-heading small{display:block}.side-heading span{font-size:14px;font-weight:700}.side-heading small{font-size:11px;color:#9e96a5;margin-top:3px}.saved-set{width:100%;display:flex;gap:9px;align-items:center;border:0;border-radius:12px;background:transparent;padding:10px 8px;text-align:left;cursor:pointer;color:#756d7d}.saved-set:hover,.saved-set.active{background:#f8f4f8}.saved-set>span:nth-child(2){min-width:0;flex:1}.saved-set strong,.saved-set small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.saved-set strong{font-size:12px;color:#574f61}.saved-set small{font-size:10px;color:#a198a7;margin-top:3px}.set-icon{display:grid;place-items:center;width:28px;height:28px;border-radius:9px;background:#f2e9ee;color:#a16f87}.delete-set{width:26px;height:26px;display:grid;place-items:center;border:0;border-radius:8px;background:transparent;color:#aaa1ad;cursor:pointer;flex:none}.delete-set:hover{background:#f8e7e7;color:#bf6464}.empty-sets{padding:25px 8px;text-align:center;color:#a69eaa;font-size:11px;line-height:1.7}.builder-card,.practice-card{padding:28px}.eyebrow{font-size:10px;letter-spacing:1.5px;color:#a16f87;font-weight:700}.builder-heading h2,.practice-top h2{margin:7px 0;color:#51495b;font-size:23px}.builder-heading p,.practice-top p{font-size:12px;color:#8e8695;line-height:1.7;margin:0}.builder-toolbar{display:flex;gap:10px;margin-top:25px}.builder-toolbar .el-input{flex:1}.hidden-file-input{display:none}.source-tip{font-size:11px;color:#9b92a0;margin:12px 0}.source-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;max-height:380px;overflow:auto;padding:2px}.source-item{height:auto!important;margin:0!important;padding:12px;border:1px solid #eee8ef;border-radius:12px;display:flex!important;align-items:center}.source-name{display:block;max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#5b5261;font-size:12px}.source-item small{display:block;color:#aaa2af;font-size:10px;margin-top:3px}.builder-footer{margin-top:18px;padding-top:15px;border-top:1px dashed #e7e0e7;display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#847b8b}.practice-top{display:flex;align-items:flex-start;justify-content:space-between;gap:15px}.score-chip{padding:8px 12px;border-radius:99px;background:#edf4e2;color:#66805f;font-size:12px;white-space:nowrap}.practice-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}.practice-filters{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:13px;padding:11px 12px;border:1px solid #eee8ef;border-radius:12px;background:#fbfafc}.practice-filters .el-progress{width:130px}.progress-label{margin-left:auto;font-size:11px;color:#83798a}.completion-banner{margin-bottom:12px;padding:10px 12px;border-radius:10px;background:#edf4e2;color:#62785d;font-size:11px}.type-summary{display:flex;gap:8px;flex-wrap:wrap;margin:22px 0 14px}.type-summary button{border:1px solid #ebe4ec;border-radius:10px;background:#faf9fa;color:#807787;padding:8px 10px;cursor:pointer;font-size:11px}.type-summary button strong{margin-left:7px}.type-summary button.active{background:#f3edf6;border-color:#aca0ce;color:#706287}.question-nav{display:flex;gap:7px;overflow:auto;padding-bottom:6px}.question-nav button{flex:none;width:30px;height:30px;border:1px solid #e9e2eb;border-radius:8px;background:#fff;color:#827889;font-size:11px;cursor:pointer}.question-nav button.active{background:#84799f;border-color:#84799f;color:#fff}.question-nav button.done:not(.active){background:#ebf4ed;border-color:#d3e6d7;color:#64836c}.question-card{margin-top:17px;padding:22px;border-radius:16px;background:#fcfbfc;border:1px solid #eee8ef}.question-meta{display:flex;justify-content:space-between;align-items:center;gap:10px;color:#988fa0;font-size:11px}.question-meta>div{display:flex;align-items:center;gap:6px;min-width:0}.type-badge,.difficulty-badge,.source-badge{border-radius:99px;padding:3px 8px;white-space:nowrap}.type-badge{background:#f1e9f1;color:#a16f87}.difficulty-badge{background:#edf4e2;color:#66805f}.source-badge{max-width:220px;overflow:hidden;text-overflow:ellipsis;background:#f2f0f4;color:#7c7482}.favorite-button{border:0;background:transparent;color:#958a9e;cursor:pointer;font-size:11px}.favorite-button.active{color:#a16f87;font-weight:700}.question-card h3{font-size:16px;line-height:1.8;color:#4e4656;margin:16px 0}.option-list{display:flex;flex-direction:column;gap:9px;width:100%}.option-list :deep(.el-radio),.option-list :deep(.el-checkbox){height:auto!important;margin:0!important;padding:10px 12px;white-space:normal;line-height:1.6}.answer-result{margin-top:14px;padding:12px;border-radius:11px;background:#fbefec;color:#9d6059;font-size:12px;line-height:1.65}.answer-result.correct{background:#eaf4ec;color:#577a60}.answer-result strong{margin-right:9px}.answer-result p{margin:5px 0 0}.question-actions{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:16px;font-size:11px;color:#928998}.no-questions{padding:80px 0;text-align:center;color:#a39aa7;font-size:13px}@media(max-width:850px){.quiz-page{padding:20px 14px}.quiz-header{align-items:flex-start}.quiz-layout{grid-template-columns:1fr}.set-sidebar{order:2}.source-list{grid-template-columns:1fr}.builder-toolbar,.practice-top{flex-direction:column}.builder-toolbar .el-button{width:100%}.question-actions{align-items:flex-start;flex-direction:column}}
 .option-list :deep(.el-radio),.option-list :deep(.el-checkbox){justify-content:flex-start!important;text-align:left!important}.option-list :deep(.el-radio__label),.option-list :deep(.el-checkbox__label){flex:1;text-align:left!important;white-space:normal}.option-list :deep(.el-radio),.option-list :deep(.el-checkbox){width:100%;box-sizing:border-box;justify-content:flex-start!important;text-align:left!important}.option-list :deep(.el-radio__label),.option-list :deep(.el-checkbox__label){flex:1;text-align:left!important;white-space:normal}</style>
