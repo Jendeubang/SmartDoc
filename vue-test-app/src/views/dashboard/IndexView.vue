@@ -510,10 +510,26 @@ const releaseAvatarUrl = () => {
   if (userAvatarUrl.value) URL.revokeObjectURL(userAvatarUrl.value)
   userAvatarUrl.value = ''
 }
+let avatarLoadVersion = 0
 const loadAvatar = async fileId => {
-  releaseAvatarUrl()
-  if (!fileId) return
-  try { userAvatarUrl.value = URL.createObjectURL(await fileApi.preview(fileId)) } catch { /* fallback to initials */ }
+  const loadVersion = ++avatarLoadVersion
+  if (!fileId) {
+    releaseAvatarUrl()
+    return
+  }
+  try {
+    const sourceBlob = await fileApi.download(fileId)
+    if (loadVersion !== avatarLoadVersion) return
+    const imageBlob = sourceBlob.type?.startsWith('image/')
+      ? sourceBlob
+      : new Blob([sourceBlob], { type: 'image/png' })
+    const nextAvatarUrl = URL.createObjectURL(imageBlob)
+    const previousAvatarUrl = userAvatarUrl.value
+    userAvatarUrl.value = nextAvatarUrl
+    if (previousAvatarUrl) URL.revokeObjectURL(previousAvatarUrl)
+  } catch (error) {
+    console.warn('加载用户头像失败', error)
+  }
 }
 const fetchUser = async () => {
   const uid = getCurrentUserId()
