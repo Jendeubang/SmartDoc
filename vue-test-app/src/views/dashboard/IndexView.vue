@@ -11,8 +11,8 @@
           <div class="nav-menu">
             <div class="nav-item" :class="{ active: !showDocLibrary }" @click="goToWorkbench"><el-icon><Monitor /></el-icon> 我的工作台</div>
             <div class="nav-item" :class="{ active: showDocLibrary }" @click="goToDocLibrary"><el-icon><FolderOpened /></el-icon> 云端文档库</div>
-            <div class="nav-item ai-chat-nav" @click="goToAiChat"><el-icon><ChatLineSquare /></el-icon> SmartDoc AI 对话</div>
-            <div class="nav-item toolbox-nav" @click="goToToolbox"><el-icon><MagicStick /></el-icon> 文档处理工具箱</div>
+            <a class="nav-item ai-chat-nav" href="/editor/chat-mode"><el-icon><ChatLineSquare /></el-icon> SmartDoc AI 对话</a>
+            <a class="nav-item toolbox-nav" href="/toolbox"><el-icon><MagicStick /></el-icon> 文档处理工具箱</a>
             <div v-if="isAdminUser" class="nav-item aiops-nav" @click="goToAIOps">
               <el-icon><Cpu /></el-icon> AI Ops 运维中心
             </div>
@@ -622,11 +622,20 @@ const hydrateThumbnails = async documents => {
   const targets = documents.filter(doc => doc.kind === 'image' && doc.fileId).slice(0, 16)
   await Promise.all(targets.map(async doc => {
     try {
-      const blob = await fileApi.preview(doc.fileId)
-      const url = URL.createObjectURL(blob)
+      const sourceBlob = await fileApi.download(doc.fileId)
+      const mimeByExtension = {
+        jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+        gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp'
+      }
+      const imageBlob = sourceBlob.type?.startsWith('image/')
+        ? sourceBlob
+        : new Blob([sourceBlob], { type: mimeByExtension[String(doc.extension || '').toLowerCase()] || 'image/png' })
+      const url = URL.createObjectURL(imageBlob)
       thumbnailUrls.add(url)
       doc.thumbnail = url
-    } catch { /* 卡片图标降级 */ }
+    } catch (error) {
+      console.warn('加载文档图片缩略图失败', doc.fileId, error)
+    }
   }))
 }
 
