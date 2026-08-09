@@ -135,7 +135,7 @@
 
             <!-- 文档统计卡片 -->
             <div v-if="libraryScope !== 'trash'" class="category-boards">
-  <button class="category-board category-board-all" :class="{ active: !categoryFilter }" @click="categoryFilter = ''"><span>全部文档</span><strong>{{ docList.length }}</strong></button>
+  <button class="category-board category-board-all" type="button" :class="{ active: !categoryFilter }" @click="selectCategory('', $event)"><span>全部文档</span><strong>{{ docList.length }}</strong></button>
   <button v-for="board in categoryBoards" :key="board.id" class="category-board" :class="{ active: categoryFilter === board.value }" type="button" @click="selectCategory(board.value, $event)"><i class="category-dot" :style="{ backgroundColor: board.color }"></i><span>{{ board.name }}</span><strong>{{ board.count }}</strong></button>
   <button class="category-board category-board-create" type="button" @click="categoryDialogVisible = true"><el-icon><Plus /></el-icon> 新建板块</button>
 </div><div class="stats-row">
@@ -214,7 +214,7 @@
 
             <el-empty v-else description="暂无文档，点击上方「上传文档」按钮上传" />
           </div><!-- 最近文档列表（工作台视图） -->
-          <div class="list-section" v-if="!showDocLibrary">
+          <div ref="workbenchListRef" class="list-section" v-if="!showDocLibrary" :style="{ minHeight: workbenchListMinHeight }">
             <div class="section-header">
               <span class="section-title">我的云端文档 <span class="count">({{ docList.length }})</span></span>
               <div class="header-actions">
@@ -235,7 +235,7 @@
             <div class="workbench-category-section" v-if="!showDocLibrary">
   <div class="workbench-category-heading"><div><span class="workbench-category-title">文档分类</span><span class="workbench-category-subtitle">按板块快速查看和管理文档</span></div><el-button text type="primary" @click="categoryDialogVisible = true">管理分类</el-button></div>
   <div class="category-boards workbench-category-boards">
-    <button class="category-board category-board-all" :class="{ active: !categoryFilter }" @click="categoryFilter = ''"><span>全部文档</span><strong>{{ docList.length }}</strong></button>
+    <button class="category-board category-board-all" type="button" :class="{ active: !categoryFilter }" @click="selectCategory('', $event)"><span>全部文档</span><strong>{{ docList.length }}</strong></button>
     <button v-for="board in categoryBoards" :key="board.id" class="category-board" :class="{ active: categoryFilter === board.value }" type="button" @click="selectCategory(board.value, $event)"><i class="category-dot" :style="{ backgroundColor: board.color }"></i><span>{{ board.name }}</span><strong>{{ board.count }}</strong></button>
     <button class="category-board category-board-create" type="button" @click="categoryDialogVisible = true"><el-icon><Plus /></el-icon> 新建板块</button>
   </div>
@@ -425,6 +425,8 @@ const uploadCategory = ref('')
 const categoryDialogVisible = ref(false)
 const categorySaving = ref(false)
 const categoryForm = ref({ name: '', color: '#ACA0CE' })
+const workbenchListRef = ref(null)
+const workbenchListMinHeight = ref('')
 const thumbnailUrls = new Set()
 const search = ref('')
 const aiTask = ref('')
@@ -576,12 +578,26 @@ const categoryBoards = computed(() => {
 const persistedCategoryBoards = computed(() => categoryBoards.value.filter(board => board.persisted))
 const selectCategory = async (value, event) => {
   event?.preventDefault()
+  event?.currentTarget?.blur()
+
   const scrollContainer = document.querySelector('.feishu-main')
-  const previousScrollTop = scrollContainer?.scrollTop ?? window.scrollY
+  const containerScrollTop = scrollContainer?.scrollTop || 0
+  const documentScrollTop = document.scrollingElement?.scrollTop || window.scrollY
+  const listElement = workbenchListRef.value
+
+  // Keep the list's previous height while cards are filtered. Otherwise the
+  // browser clamps scrollTop when a small category makes the page shorter.
+  if (listElement) {
+    workbenchListMinHeight.value = `${Math.ceil(listElement.getBoundingClientRect().height)}px`
+  }
+
   categoryFilter.value = value
   await nextTick()
-  if (scrollContainer) scrollContainer.scrollTop = previousScrollTop
-  else window.scrollTo({ top: previousScrollTop })
+
+  requestAnimationFrame(() => {
+    if (scrollContainer) scrollContainer.scrollTop = containerScrollTop
+    if (document.scrollingElement) document.scrollingElement.scrollTop = documentScrollTop
+  })
 }
 const filteredList = computed(() => docList.value.filter(doc => {
   if (libraryScope.value === 'favorite' && !doc.favorite) return false
@@ -1010,7 +1026,7 @@ const goToAIOps = () => {
 .username { font-size: 14px; font-weight: 500; color: #1f2329;}
 
 /* AI 欢迎区 */
-.feishu-main { padding: 0; display: flex; justify-content: center; overflow-y: auto; }
+.feishu-main { padding: 0; display: flex; justify-content: center; overflow-y: auto; overflow-anchor: none; }
 .main-container { width: 100%; max-width: 1050px; padding: 40px 32px; }
 .ai-hero { display: flex; flex-direction: column; align-items: center; margin-bottom: 50px; padding-top: 40px;}
 .hero-title { font-size: 26px; color: #1f2329; margin-bottom: 36px; font-weight: 600; letter-spacing: 0.5px;}
