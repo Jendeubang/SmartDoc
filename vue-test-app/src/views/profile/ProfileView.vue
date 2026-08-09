@@ -97,7 +97,7 @@ const loadProfile = async () => {
   }
   loading.value = true
   try {
-    const response = await userApi.getUserById(currentUserId.value)
+    const response = await userApi.getUserInfo(currentUserId.value)
     const user = response?.data || {}
     profileForm.value = {
       username: user.username || '',
