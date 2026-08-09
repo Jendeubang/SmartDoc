@@ -5,13 +5,17 @@ package com.javaee.documentservice.controller;
  * 提供文档 CRUD、文档内容管理等接口。
  */
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.javaee.common.exception.BusinessException;
 import com.javaee.common.model.Result;
+import com.javaee.documentservice.dto.DocumentCategoryDTO;
 import com.javaee.documentservice.dto.DocumentCreateDTO;
 import com.javaee.documentservice.dto.DocumentQueryDTO;
 import com.javaee.documentservice.dto.DocumentUpdateDTO;
 import com.javaee.documentservice.entity.Document;
+import com.javaee.documentservice.entity.DocumentCategory;
 import com.javaee.documentservice.entity.DocumentVersion;
+import com.javaee.documentservice.mapper.DocumentCategoryMapper;
 import com.javaee.documentservice.mapper.DocumentMapper;
 import com.javaee.documentservice.security.RequestUserContext;
 import com.javaee.documentservice.service.DocumentAccessService;
@@ -23,6 +27,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -46,6 +51,9 @@ public class DocumentController {
 
     @Autowired
     private DocumentMapper documentMapper;
+
+    @Autowired
+    private DocumentCategoryMapper documentCategoryMapper;
 
     /**
      * 创建文档
@@ -152,6 +160,63 @@ public class DocumentController {
         return Result.success();
     }
 
+    @GetMapping("/categories")
+    @Operation(summary = "获取分类板块", description = "获取当前用户创建的文档分类板块")
+    public Result<List<DocumentCategory>> listCategories() {
+        Long userId = requestUserContext.getRequiredUserId();
+        List<DocumentCategory> categories = documentCategoryMapper.selectList(
+                new LambdaQueryWrapper<DocumentCategory>()
+                        .eq(DocumentCategory::getUserId, userId)
+                        .orderByAsc(DocumentCategory::getCreateTime));
+        return Result.success(categories);
+    }
+
+    @PostMapping("/categories")
+    @Operation(summary = "新建分类板块", description = "为当前用户创建一个可选择的文档分类板块")
+    public Result<DocumentCategory> createCategory(@RequestBody DocumentCategoryDTO dto) {
+        Long userId = requestUserContext.getRequiredUserId();
+        String name = dto == null || dto.getName() == null ? "" : dto.getName().trim();
+        if (name.isBlank() || name.length() > 50) {
+            throw new BusinessException("分类名称不能为空且不能超过 50 个字符");
+        }
+        Long exists = documentCategoryMapper.selectCount(new LambdaQueryWrapper<DocumentCategory>()
+                .eq(DocumentCategory::getUserId, userId)
+                .eq(DocumentCategory::getName, name));
+        if (exists != null && exists > 0) {
+            throw new BusinessException("该分类板块已存在");
+        }
+        String color = dto.getColor();
+        if (color == null || !color.matches("#[0-9a-fA-F]{6}")) {
+            color = "#ACA0CE";
+        }
+        DocumentCategory category = new DocumentCategory();
+        category.setUserId(userId);
+        category.setName(name);
+        category.setColor(color);
+        category.setCreateTime(LocalDateTime.now());
+        category.setUpdateTime(LocalDateTime.now());
+        documentCategoryMapper.insert(category);
+        return Result.success(category);
+    }
+
+    @DeleteMapping("/categories/{id}")
+    @Operation(summary = "删除空分类板块", description = "仅当分类下没有文档时允许删除，避免文档失去归类")
+    public Result<Void> deleteCategory(@PathVariable String id) {
+        Long userId = requestUserContext.getRequiredUserId();
+        DocumentCategory category = documentCategoryMapper.selectById(id);
+        if (category == null || !userId.equals(category.getUserId())) {
+            throw new BusinessException("分类板块不存在或无权操作");
+        }
+        Long documentCount = documentMapper.selectCount(new LambdaQueryWrapper<Document>()
+                .eq(Document::getUserId, userId)
+                .eq(Document::getCategory, category.getName())
+                .ne(Document::getStatus, "deleted"));
+        if (documentCount != null && documentCount > 0) {
+            throw new BusinessException("请先将该板块中的文档移出后再删除");
+        }
+        documentCategoryMapper.deleteById(id);
+        return Result.success();
+    }
     @GetMapping("/trash")
     @Operation(summary = "获取回收站", description = "获取当前用户软删除的文档")
     public Result<List<DocumentVO>> getTrash() {

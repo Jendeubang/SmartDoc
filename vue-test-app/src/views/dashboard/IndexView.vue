@@ -77,7 +77,12 @@
               <div class="popover-content">
                 <div class="menu-list">
                   <input type="file" ref="fileInputRef" style="display: none;" accept=".pdf,.doc,.docx,.txt,.md,.ppt,.pptx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp" @change="onFileSelected" />
-                  <div class="menu-item" @click="triggerUpload">
+                  <div class="upload-category-picker" @click.stop>
+  <span>保存到</span>
+  <el-select v-model="uploadCategory" size="small" style="width: 160px"><el-option v-for="category in categoryOptions" :key="category" :label="category" :value="category" /></el-select>
+  <el-button text type="primary" @click.stop="categoryDialogVisible = true">新建板块</el-button>
+</div>
+<div class="menu-item" @click="triggerUpload">
                     <el-icon><Paperclip /></el-icon> 上传文件并由 AI 解析
                   </div>
 
@@ -111,6 +116,7 @@
                 <el-select v-if="libraryScope !== 'trash'" v-model="categoryFilter" size="small" clearable placeholder="全部分类" style="width: 120px">
                   <el-option v-for="category in categoryOptions" :key="category" :label="category" :value="category" />
                 </el-select>
+                <el-button v-if="libraryScope !== 'trash'" size="small" icon="FolderOpened" @click="categoryDialogVisible = true">分类板块</el-button>
                 <el-button v-if="libraryScope !== 'trash'" size="small" icon="EditPen" @click="newDocDialogVisible = true">新建文档</el-button>
                 <el-button v-if="libraryScope !== 'trash'" type="primary" size="small" icon="Upload" @click="triggerUpload">上传文档</el-button>
                 <el-input
@@ -127,7 +133,11 @@
             </div>
 
             <!-- 文档统计卡片 -->
-            <div class="stats-row">
+            <div v-if="libraryScope !== 'trash'" class="category-boards">
+  <button class="category-board category-board-all" :class="{ active: !categoryFilter }" @click="categoryFilter = ''"><span>全部文档</span><strong>{{ docList.length }}</strong></button>
+  <button v-for="board in categoryBoards" :key="board.id" class="category-board" :class="{ active: categoryFilter === board.name }" @click="categoryFilter = board.name"><i class="category-dot" :style="{ backgroundColor: board.color }"></i><span>{{ board.name }}</span><strong>{{ board.count }}</strong></button>
+  <button class="category-board category-board-create" @click="categoryDialogVisible = true"><el-icon><Plus /></el-icon> 新建板块</button>
+</div><div class="stats-row">
               <div class="stat-card">
                 <el-icon :size="24" color="#3370ff"><Document /></el-icon>
                 <div class="stat-info">
@@ -294,8 +304,11 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="文档分类">
-              <el-input v-model="newDocForm.category" maxlength="30" placeholder="默认分类" />
-            </el-form-item>
+  <div class="category-select-row">
+    <el-select v-model="newDocForm.category" filterable style="flex: 1" placeholder="选择分类板块"><el-option v-for="category in categoryOptions" :key="category" :label="category" :value="category" /></el-select>
+    <el-button text type="primary" @click="categoryDialogVisible = true">新建板块</el-button>
+  </div>
+</el-form-item>
           </el-col>
         </el-row>
         <el-form-item label="文档正文" required>
@@ -308,7 +321,18 @@
       </template>
     </el-dialog>
     <!-- PPT 生成器弹窗 -->
-    <el-dialog v-model="pptDialogVisible" title="🎨 HTML PPT 生成器" width="600px" destroy-on-close>
+    <el-dialog v-model="categoryDialogVisible" title="分类板块" width="500px" @closed="resetCategoryForm">
+  <p class="category-dialog-tip">创建板块后，上传、新建和整理文档时都能直接选择。板块内仍有文档时不能删除，避免误分类。</p>
+  <el-form :model="categoryForm" label-position="top" @submit.prevent>
+    <el-form-item label="板块名称" required><el-input v-model="categoryForm.name" maxlength="50" show-word-limit placeholder="例如：项目资料、课程学习、会议纪要" @keyup.enter="createCategory" /></el-form-item>
+    <el-form-item label="标识颜色"><el-color-picker v-model="categoryForm.color" show-alpha="false" /></el-form-item>
+    <el-button type="primary" :loading="categorySaving" @click="createCategory">创建板块</el-button>
+  </el-form>
+  <div class="category-manager-list">
+    <div v-for="board in persistedCategoryBoards" :key="board.id" class="category-manager-item"><div class="category-manager-name"><i class="category-dot" :style="{ backgroundColor: board.color }"></i><span>{{ board.name }}</span><small>{{ board.count }} 篇文档</small></div><el-button text type="danger" :disabled="board.count > 0" @click="removeCategory(board)">删除</el-button></div>
+    <el-empty v-if="!persistedCategoryBoards.length" description="还没有自定义板块" :image-size="64" />
+  </div>
+</el-dialog><el-dialog v-model="pptDialogVisible" title="🎨 HTML PPT 生成器" width="600px" destroy-on-close>
       <el-form :model="pptForm" label-position="top">
         <el-alert :title="`即将使用 [${currentModelName}] 为您生成内容`" type="info" show-icon :closable="false" style="margin-bottom: 15px;" />
         <el-form-item label="📌 演示标题">
@@ -384,6 +408,11 @@ const currentUserName = ref('User')
 const docList = ref([])
 const libraryScope = ref('all')
 const categoryFilter = ref('')
+const categories = ref([])
+const uploadCategory = ref('默认分类')
+const categoryDialogVisible = ref(false)
+const categorySaving = ref(false)
+const categoryForm = ref({ name: '', color: '#ACA0CE' })
 const thumbnailUrls = new Set()
 const search = ref('')
 const aiTask = ref('')
@@ -432,7 +461,7 @@ const mapDocument = item => ({
   time: item.createTime ? new Date(item.createTime).toLocaleDateString() : '未知',
   analyzed: !!item.summary || getProcessedDocumentIds().includes(String(item.id)),
   parseStatus: item.parseStatus || 'ready',
-  category: item.category || '默认分类',
+  category: !item.category || item.category === 'default' ? '默认分类' : item.category,
   tags: Array.isArray(item.tags) ? item.tags : [],
   favorite: Array.isArray(item.tags) && item.tags.includes('_favorite'),
   extension: extensionOf(item.title),
@@ -481,6 +510,18 @@ const changeLibraryScope = async scope => {
 }
 
 onBeforeUnmount(releaseThumbnails)
+
+const fetchCategories = async () => {
+  try {
+    const res = await docApi.getCategories()
+    categories.value = Array.isArray(res.data) ? res.data : []
+  } catch (error) {
+    console.warn('获取分类板块失败，将显示文档现有分类', error)
+    categories.value = []
+  }
+}
+
+
 // 获取 AI 模型列表
 const fetchModels = async () => {
   modelsLoading.value = true
@@ -502,9 +543,19 @@ const fetchModels = async () => {
   }
 }
 
-onMounted(() => { fetchUser(); fetchFiles(); fetchModels() })
+onMounted(() => { fetchUser(); fetchFiles(); fetchModels(); fetchCategories() })
 
-const categoryOptions = computed(() => [...new Set(docList.value.map(doc => doc.category).filter(Boolean))])
+const categoryOptions = computed(() => [...new Set([
+  '默认分类',
+  ...categories.value.map(category => category.name).filter(Boolean),
+  ...docList.value.map(doc => doc.category).filter(Boolean)
+])])
+const categoryDocumentCount = name => docList.value.filter(doc => doc.category === name).length
+const categoryBoards = computed(() => categoryOptions.value.map(name => {
+  const persisted = categories.value.find(category => category.name === name)
+  return { id: persisted?.id || `legacy-${name}`, name, color: persisted?.color || '#ACA0CE', count: categoryDocumentCount(name), persisted: !!persisted }
+}))
+const persistedCategoryBoards = computed(() => categoryBoards.value.filter(board => board.persisted))
 const filteredList = computed(() => docList.value.filter(doc => {
   if (libraryScope.value === 'favorite' && !doc.favorite) return false
   if (categoryFilter.value && doc.category !== categoryFilter.value) return false
@@ -558,7 +609,10 @@ const handleSearch = async () => {
 
 
 // 飞书化上传交互
-const triggerUpload = () => fileInputRef.value?.click()
+const triggerUpload = () => {
+  if (categoryFilter.value) uploadCategory.value = categoryFilter.value
+  fileInputRef.value?.click()
+}
 
 const onFileSelected = async (event) => {
   const rawFile = event.target.files[0]
@@ -577,7 +631,7 @@ const onFileSelected = async (event) => {
     await docApi.createDoc({
       title: rawFile.name,
       fileId: fileId,
-      category: 'default'
+      category: uploadCategory.value || '默认分类'
     })
 
     ElMessage.success(`《${rawFile.name}》已成功存入云端！`)
@@ -589,6 +643,51 @@ const onFileSelected = async (event) => {
   } finally {
     event.target.value = ''
     loading.value = false
+  }
+}
+
+const resetCategoryForm = () => {
+  categorySaving.value = false
+  categoryForm.value = { name: '', color: '#ACA0CE' }
+}
+
+const ensureCategoryExists = async name => {
+  const normalizedName = String(name || '').trim()
+  if (!normalizedName || normalizedName === '默认分类' || categories.value.some(category => category.name === normalizedName)) return
+  const res = await docApi.createCategory({ name: normalizedName, color: '#ACA0CE' })
+  if (res.data) categories.value.push(res.data)
+  else await fetchCategories()
+}
+
+const createCategory = async () => {
+  const name = categoryForm.value.name.trim()
+  if (!name) { ElMessage.warning('请填写板块名称'); return }
+  categorySaving.value = true
+  try {
+    const res = await docApi.createCategory({ name, color: categoryForm.value.color || '#ACA0CE' })
+    if (res.data) categories.value.push(res.data)
+    else await fetchCategories()
+    newDocForm.value.category = name
+    uploadCategory.value = name
+    categoryDialogVisible.value = false
+    ElMessage.success(`已创建“${name}”板块`)
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.message || '创建分类板块失败')
+  } finally {
+    categorySaving.value = false
+  }
+}
+
+const removeCategory = async board => {
+  if (board.count > 0) { ElMessage.warning('请先把该板块中的文档移到其他板块'); return }
+  try {
+    await ElMessageBox.confirm(`确定删除“${board.name}”板块吗？`, '删除分类板块', { type: 'warning' })
+    await docApi.deleteCategory(board.id)
+    categories.value = categories.value.filter(category => category.id !== board.id)
+    if (categoryFilter.value === board.name) categoryFilter.value = ''
+    ElMessage.success('分类板块已删除')
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(error?.response?.data?.message || '删除分类板块失败')
   }
 }
 
@@ -634,6 +733,8 @@ const saveNewDocument = async () => {
   newDocSaving.value = true
   loading.value = true
   try {
+    const targetCategory = newDocForm.value.category.trim() || '默认分类'
+    await ensureCategoryExists(targetCategory)
     const rawFile = await buildNewDocumentFile()
     const fileRes = await fileApi.upload(rawFile)
     const fileId = fileRes?.data?.fileId || fileRes?.data?.id
@@ -643,7 +744,7 @@ const saveNewDocument = async () => {
       title: rawFile.name,
       fileId,
       content: newDocForm.value.content,
-      category: newDocForm.value.category.trim() || '默认分类'
+      category: targetCategory
     })
     newDocDialogVisible.value = false
     await fetchFiles()
@@ -690,7 +791,8 @@ const handleCardCommand = async (cmd, doc) => {
   if (cmd === 'category') {
     try {
       const { value } = await ElMessageBox.prompt('输入分类名称，例如：学习资料、项目文档', '移动分类', { inputValue: doc.category === '默认分类' ? '' : doc.category, inputPattern: /\S+/, inputErrorMessage: '分类不能为空' })
-      await docApi.updateDoc(doc.id, { category: value.trim(), changeLog: '调整文档分类' })
+      await ensureCategoryExists(value.trim())
+       await docApi.updateDoc(doc.id, { category: value.trim(), changeLog: '调整文档分类' })
       doc.category = value.trim(); ElMessage.success('分类已更新')
     } catch { /* 用户取消 */ }
     return
@@ -936,7 +1038,19 @@ const goToAIOps = () => {
 .library-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; }
 .library-title { font-size: 24px; font-weight: 700; color: #1f2329; display: flex; align-items: center; gap: 10px; margin: 0 0 6px; }
 .library-subtitle { font-size: 14px; color: #8f959e; margin: 0; }
-.library-actions { display: flex; gap: 12px; align-items: center; }
+.library-actions { display: flex; gap: 12px; align-items: center; }.category-boards { display: flex; flex-wrap: wrap; gap: 10px; margin: -8px 0 22px; }
+.category-board { min-height: 38px; border: 1px solid #e5dfeb; border-radius: 12px; background: #fff; color: #5f5870; padding: 0 13px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font: inherit; transition: all .2s ease; }
+.category-board:hover, .category-board.active { border-color: #a99ac2; background: #f5f1f7; color: #70618c; box-shadow: 0 4px 12px rgba(123, 104, 157, .12); }
+.category-board strong { color: #8b7aa7; font-size: 12px; font-weight: 700; }
+.category-board-create { border-style: dashed; color: #85749f; }
+.category-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: 0 0 auto; }
+.upload-category-picker { display: flex; align-items: center; gap: 8px; padding: 4px 8px 10px; color: #7b728a; font-size: 12px; border-bottom: 1px solid #f0edf2; margin-bottom: 5px; }
+.category-select-row { display: flex; align-items: center; gap: 8px; width: 100%; }
+.category-dialog-tip { margin: -4px 0 18px; color: #7d7488; font-size: 13px; line-height: 1.65; }
+.category-manager-list { margin-top: 22px; border-top: 1px solid #eee9f0; padding-top: 12px; max-height: 260px; overflow: auto; }
+.category-manager-item { display: flex; align-items: center; justify-content: space-between; min-height: 42px; padding: 4px 2px; border-bottom: 1px solid #f5f1f6; }
+.category-manager-name { display: flex; align-items: center; gap: 9px; color: #51495d; }
+.category-manager-name small { color: #aaa1b0; margin-left: 2px; }
 
 .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 32px; }
 .stat-card { background: #fff; border-radius: 12px; border: 1px solid #ebeef5; padding: 20px; display: flex; align-items: center; gap: 16px; }

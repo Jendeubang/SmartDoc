@@ -77,6 +77,16 @@ CREATE TABLE IF NOT EXISTS `document` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ── 文档协作权限表 ──────────────────────────────────
+CREATE TABLE IF NOT EXISTS `document_category` (
+  `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+  `user_id` BIGINT NOT NULL,
+  `name` VARCHAR(50) NOT NULL,
+  `color` VARCHAR(16) NOT NULL DEFAULT '#ACA0CE',
+  `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY `uk_user_category_name` (`user_id`, `name`),
+  INDEX `idx_category_user` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE IF NOT EXISTS `document_access` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
   `document_id` VARCHAR(64) NOT NULL,

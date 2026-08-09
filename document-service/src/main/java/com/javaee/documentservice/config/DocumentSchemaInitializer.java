@@ -85,6 +85,18 @@ public class DocumentSchemaInitializer implements ApplicationRunner {
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='文档表'
                     """);
 
+            execute(statement, """
+                    CREATE TABLE IF NOT EXISTS `document_category` (
+                      `id` VARCHAR(64) NOT NULL PRIMARY KEY COMMENT '分类板块ID',
+                      `user_id` BIGINT NOT NULL COMMENT '所属用户ID',
+                      `name` VARCHAR(50) NOT NULL COMMENT '分类名称',
+                      `color` VARCHAR(16) NOT NULL DEFAULT '#ACA0CE' COMMENT '展示颜色',
+                      `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                      `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+                      UNIQUE KEY `uk_user_category_name` (`user_id`, `name`),
+                      INDEX `idx_category_user` (`user_id`)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户文档分类板块'
+                    """);
             addColumnIfMissing(connection, statement, "document", "content",
                     "ALTER TABLE `document` ADD COLUMN `content` TEXT COMMENT '文档内容'");
             addColumnIfMissing(connection, statement, "document", "summary",

@@ -54,6 +54,10 @@ export const docApi = {
 
     purgeDoc: (id) => request.delete(`/documents/${id}/purge`),
 
+    getCategories: () => request.get('/documents/categories'),
+    createCategory: (data) => request.post('/documents/categories', data),
+    deleteCategory: (id) => request.delete(`/documents/categories/${id}`),
+
     grantCollaborator: (id, collaboratorUserId, role = 'editor', expiresHours = 0) => {
         return request.post(`/documents/${id}/collaborators/${collaboratorUserId}`, null, {
             params: { role, expiresHours }
