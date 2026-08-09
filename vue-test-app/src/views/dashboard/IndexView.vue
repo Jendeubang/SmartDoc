@@ -31,6 +31,7 @@
             </div>
             <template #dropdown>
               <el-dropdown-menu>
+                <el-dropdown-item command="profile" icon="User">个人信息</el-dropdown-item>
                 <el-dropdown-item command="logout" icon="SwitchButton" style="color: #F56C6C">退出系统</el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -1121,6 +1122,7 @@ const handleAiTask = () => {
 
 
 const handleUserCommand = (cmd) => {
+  if (cmd === 'profile') { openProfile(); return }
   if (cmd === 'logout') { localStorage.clear(); router.push('/login'); }
 }
 
