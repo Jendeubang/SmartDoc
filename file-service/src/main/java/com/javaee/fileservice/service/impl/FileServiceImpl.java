@@ -3,6 +3,7 @@ package com.javaee.fileservice.service.impl;
 import com.javaee.fileservice.client.DocumentServiceClient;
 import com.javaee.fileservice.config.FileStorageConfig;
 import com.javaee.fileservice.security.BucketPermissionService;
+import com.javaee.fileservice.security.FileUploadValidator;
 import com.javaee.fileservice.service.FileMetadataService;
 import com.javaee.fileservice.service.FileService;
 import com.javaee.fileservice.util.DocumentTextExtractor;
@@ -17,6 +18,9 @@ import io.minio.CopyObjectArgs;
 import io.minio.CopySource;
 import io.minio.StatObjectArgs;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -50,6 +54,9 @@ public class FileServiceImpl implements FileService {
     @Autowired
     private BucketPermissionService bucketPermissionService;
 
+    @Autowired
+    private FileUploadValidator fileUploadValidator;
+
     @Autowired(required = false)
     private DocumentServiceClient documentServiceClient;
 
@@ -59,6 +66,7 @@ public class FileServiceImpl implements FileService {
     @Override
     public String upload(MultipartFile file) {
         try {
+            fileUploadValidator.validate(file);
             assertMinioBucketAccess();
             // 生成文件ID
             String fileId = UUID.randomUUID().toString();
@@ -143,7 +151,7 @@ public class FileServiceImpl implements FileService {
                 fileMetadata.setStorageType(fileStorageConfig.getStorageType());
                 fileMetadata.setBucketName(fileStorageConfig.getBucketName());
                 fileMetadata.setObjectKey(storageFileName);
-                fileMetadata.setCreateBy("system");
+                fileMetadata.setCreateBy(currentUserId());
                 fileMetadataService.saveMetadata(fileMetadata);
             } catch (Exception e) {
                 // 数据库不可用时，继续执行，只记录日志
@@ -188,11 +196,16 @@ public class FileServiceImpl implements FileService {
     @Override
     public String mergeChunk(String fileId, String fileName) {
         try {
+            fileUploadValidator.validateFileName(fileName);
             assertMinioBucketAccess();
             // 获取分片文件
             ConcurrentMap<Integer, File> chunks = chunkMap.get(fileId);
             if (chunks == null || chunks.isEmpty()) {
                 throw new RuntimeException("没有找到分片文件");
+            }
+            long mergedSize = chunks.values().stream().mapToLong(File::length).sum();
+            if (mergedSize > fileStorageConfig.getMaxSize() * 1024L * 1024L) {
+                throw new IllegalArgumentException("合并文件超过 " + fileStorageConfig.getMaxSize() + "MB 上传限制");
             }
 
             // 生成存储文件名
@@ -268,7 +281,7 @@ public class FileServiceImpl implements FileService {
                 fileMetadata.setStorageType(fileStorageConfig.getStorageType());
                 fileMetadata.setBucketName(fileStorageConfig.getBucketName());
                 fileMetadata.setObjectKey(storageFileName);
-                fileMetadata.setCreateBy("system");
+                fileMetadata.setCreateBy(currentUserId());
                 fileMetadataService.saveMetadata(fileMetadata);
             } catch (Exception e) {
                 // 数据库不可用时，忽略错误
@@ -815,7 +828,7 @@ public class FileServiceImpl implements FileService {
                     newFileMetadata.setStorageType(fileMetadata.getStorageType());
                     newFileMetadata.setBucketName(fileMetadata.getBucketName());
                     newFileMetadata.setObjectKey(newStorageFileName);
-                    newFileMetadata.setCreateBy("system");
+                    newFileMetadata.setCreateBy(currentUserId());
                     fileMetadataService.saveMetadata(newFileMetadata);
                 }
             } catch (Exception e) {
@@ -884,5 +897,14 @@ public class FileServiceImpl implements FileService {
         if ("minio".equals(fileStorageConfig.getStorageType())) {
             bucketPermissionService.assertCanAccess(fileStorageConfig.getBucketName());
         }
+    }
+    private String currentUserId() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.isAuthenticated()
+                && !(authentication instanceof AnonymousAuthenticationToken)
+                && authentication.getPrincipal() != null) {
+            return authentication.getPrincipal().toString();
+        }
+        throw new SecurityException("用户未认证，请先登录");
     }
 }

@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS `document_access` (
   `bucket_name` VARCHAR(128) NOT NULL,
   `user_id` BIGINT NOT NULL,
   `role` VARCHAR(20) NOT NULL DEFAULT 'editor',
+  `expires_at` DATETIME DEFAULT NULL,
   `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP,
   `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY `uk_document_user` (`document_id`, `user_id`),

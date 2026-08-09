@@ -131,6 +131,7 @@ public class DocumentSchemaInitializer implements ApplicationRunner {
                       `bucket_name` VARCHAR(128) NOT NULL COMMENT '文档所在MinIO桶',
                       `user_id` BIGINT NOT NULL COMMENT '可访问用户ID',
                       `role` VARCHAR(20) NOT NULL DEFAULT 'editor' COMMENT '角色：owner/editor/viewer',
+                      `expires_at` DATETIME DEFAULT NULL COMMENT '授权过期时间，空表示永久',
                       `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
                       `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
                       UNIQUE KEY `uk_document_user` (`document_id`, `user_id`),
@@ -142,6 +143,8 @@ public class DocumentSchemaInitializer implements ApplicationRunner {
                     "ALTER TABLE `document_access` ADD COLUMN `bucket_name` VARCHAR(128) NOT NULL COMMENT '文档所在MinIO桶' AFTER `document_id`");
             addColumnIfMissing(connection, statement, "document_access", "role",
                     "ALTER TABLE `document_access` ADD COLUMN `role` VARCHAR(20) NOT NULL DEFAULT 'editor' COMMENT '角色：owner/editor/viewer' AFTER `user_id`");
+addColumnIfMissing(connection, statement, "document_access", "expires_at",
+                    "ALTER TABLE `document_access` ADD COLUMN `expires_at` DATETIME DEFAULT NULL COMMENT '授权过期时间，空表示永久' AFTER `role`");
             addColumnIfMissing(connection, statement, "document_access", "create_time",
                     "ALTER TABLE `document_access` ADD COLUMN `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间'");
             addColumnIfMissing(connection, statement, "document_access", "update_time",

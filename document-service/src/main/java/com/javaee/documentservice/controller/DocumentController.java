@@ -107,9 +107,10 @@ public class DocumentController {
     public Result<Void> grantAccess(
             @Parameter(description = "文档ID") @PathVariable String id,
             @Parameter(description = "协作者用户ID") @PathVariable Long collaboratorUserId,
-            @Parameter(description = "协作角色") @RequestParam(defaultValue = "editor") String role) {
+            @Parameter(description = "协作角色") @RequestParam(defaultValue = "editor") String role,
+            @Parameter(description = "有效期小时数，0 表示永久") @RequestParam(defaultValue = "0") Integer expiresHours) {
         Long userId = requestUserContext.getRequiredUserId();
-        documentService.grantAccess(id, collaboratorUserId, role, userId);
+        documentService.grantAccess(id, collaboratorUserId, role, expiresHours, userId);
         return Result.success();
     }
 

@@ -64,8 +64,6 @@ public class SecurityConfig extends BaseSecurityConfig {
                 .requestMatchers("/static/**", "/public/**").permitAll()
                 // 允许健康检查等端点访问
                 .requestMatchers("/actuator/**").permitAll()
-                // 允许微服务内部下载文件（document-service 解析文档内容）
-                .requestMatchers("/api/files/download/**", "/api/files/metadata/**").permitAll()
                 // 允许错误处理端点访问
                 .requestMatchers("/error").permitAll()
                 // 其他接口需要认证

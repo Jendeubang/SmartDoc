@@ -25,6 +25,8 @@ public class DocumentAccess {
 
     private String role;
 
+    private LocalDateTime expiresAt;
+
     private LocalDateTime createTime;
 
     private LocalDateTime updateTime;

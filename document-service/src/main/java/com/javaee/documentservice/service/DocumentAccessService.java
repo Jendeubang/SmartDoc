@@ -59,6 +59,8 @@ public class DocumentAccessService {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("userId", a.getUserId());
             m.put("role", a.getRole());
+            m.put("expiresAt", a.getExpiresAt());
+            m.put("expired", a.getExpiresAt() != null && a.getExpiresAt().isBefore(LocalDateTime.now()));
             m.put("createTime", a.getCreateTime());
             return m;
         }).collect(Collectors.toList());
@@ -77,10 +79,14 @@ public class DocumentAccessService {
     }
 
     public void grantOwnerAccess(String documentId, String bucketName, Long userId) {
-        grantAccess(documentId, bucketName, userId, "owner");
+        grantAccess(documentId, bucketName, userId, "owner", 0);
     }
 
     public void grantAccess(String documentId, String bucketName, Long userId, String role) {
+        grantAccess(documentId, bucketName, userId, role, 0);
+    }
+
+    public void grantAccess(String documentId, String bucketName, Long userId, String role, Integer expiresHours) {
         if (documentId == null || documentId.isBlank()) {
             throw new BusinessException("文档ID不能为空");
         }
@@ -95,6 +101,11 @@ public class DocumentAccessService {
             throw new BusinessException("用户不存在，请检查用户ID是否正确");
         }
         String normalizedRole = normalizeRole(role);
+        int normalizedExpiry = expiresHours == null ? 0 : expiresHours;
+        if (normalizedExpiry < 0 || normalizedExpiry > 8760) {
+            throw new BusinessException("协作有效期必须在 0 到 8760 小时之间");
+        }
+        LocalDateTime expiresAt = normalizedExpiry == 0 ? null : LocalDateTime.now().plusHours(normalizedExpiry);
         DocumentAccess existing = documentAccessMapper.selectOne(new QueryWrapper<DocumentAccess>()
                 .eq("document_id", documentId)
                 .eq("user_id", userId));
@@ -105,6 +116,7 @@ public class DocumentAccessService {
             access.setBucketName(bucketName);
             access.setUserId(userId);
             access.setRole(normalizedRole);
+            access.setExpiresAt(expiresAt);
             access.setCreateTime(now);
             access.setUpdateTime(now);
             documentAccessMapper.insert(access);
@@ -112,6 +124,7 @@ public class DocumentAccessService {
         }
         existing.setBucketName(bucketName);
         existing.setRole(normalizedRole);
+        existing.setExpiresAt(expiresAt);
         existing.setUpdateTime(now);
         documentAccessMapper.updateById(existing);
     }
@@ -143,7 +156,8 @@ public class DocumentAccessService {
         Long count = documentAccessMapper.selectCount(new QueryWrapper<DocumentAccess>()
                 .eq("document_id", document.getId())
                 .eq("user_id", userId)
-                .in("role", allowedRoles));
+                .in("role", allowedRoles)
+                .and(w -> w.isNull("expires_at").or().gt("expires_at", LocalDateTime.now())));
         return count != null && count > 0;
     }
 

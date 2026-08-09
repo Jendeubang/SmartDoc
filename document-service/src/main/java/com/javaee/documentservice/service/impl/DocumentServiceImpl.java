@@ -320,6 +320,18 @@ public class DocumentServiceImpl implements DocumentService {
         }
         documentAccessService.grantAccess(id, storageBucketName(document), collaboratorUserId, role);
     }
+    @Override
+    @Transactional
+    public void grantAccess(String id, Long collaboratorUserId, String role, Integer expiresHours, Long operatorUserId) {
+        Document document = documentMapper.selectById(id);
+        if (document == null) {
+            throw new BusinessException("文档不存在");
+        }
+        if (!documentAccessService.isOwner(document, operatorUserId)) {
+            throw new BusinessException("只有文档创建者可以授权协作者");
+        }
+        documentAccessService.grantAccess(id, storageBucketName(document), collaboratorUserId, role, expiresHours);
+    }
 
     /**
      * 根据ID获取文档详情

@@ -55,6 +55,8 @@ public interface DocumentService {
      */
     void grantAccess(String id, Long collaboratorUserId, String role, Long operatorUserId);
 
+    void grantAccess(String id, Long collaboratorUserId, String role, Integer expiresHours, Long operatorUserId);
+
     /**
      * 根据ID获取文档详情
      * @param id 文档ID

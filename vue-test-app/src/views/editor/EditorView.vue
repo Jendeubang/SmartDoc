@@ -181,16 +181,22 @@
           <div class="share-label">授权协作者</div>
           <div class="grant-row">
             <el-input v-model="collaboratorQuery" size="small" clearable placeholder="输入用户名或用户ID" @keyup.enter="handleGrantCollab" />
-            <el-select v-model="collaboratorRole" size="small" style="width: 96px;">
+            <el-select v-model="collaboratorRole" size="small" style="width: 88px;">
               <el-option label="可编辑" value="editor" />
               <el-option label="只读" value="viewer" />
+            </el-select>
+            <el-select v-model="collaboratorExpiry" size="small" style="width: 104px;">
+              <el-option label="7 天" :value="168" />
+              <el-option label="30 天" :value="720" />
+              <el-option label="永久" :value="0" />
             </el-select>
             <el-button type="primary" size="small" :loading="grantLoading" @click="handleGrantCollab">授权</el-button>
           </div>
           <div class="granted-list" v-if="shareGrantedUsers.length > 0">
             <div class="granted-item" v-for="u in shareGrantedUsers" :key="u.userId">
               <span class="granted-name">{{ u.userName || u.userId }}</span>
-              <el-tag size="small" type="info" effect="plain">{{ u.role }}</el-tag>
+              <el-tag size="small" :type="u.expired ? 'danger' : 'info'" effect="plain">{{ u.expired ? '已过期' : u.role }}</el-tag>
+              <small v-if="u.expiresAt" class="grant-expiry">至 {{ new Date(u.expiresAt).toLocaleDateString() }}</small>
               <el-button v-if="isDocOwner" size="small" type="danger" plain circle @click="handleRevokeCollab(u.userId)">
                 <el-icon><Close /></el-icon>
               </el-button>
@@ -423,6 +429,7 @@ const shareDialogVisible = ref(false)
 const shareLink = computed(() => `${window.location.origin}/editor/${docId}`)
 const collaboratorQuery = ref('')
 const collaboratorRole = ref('editor')
+const collaboratorExpiry = ref(168)
 const grantLoading = ref(false)
 const shareGrantedUsers = ref([])
 const isDocOwner = ref(false)
@@ -465,7 +472,7 @@ const handleGrantCollab = async () => {
     }
     if (!collaboratorUserId) { ElMessage.error('没有找到该用户'); return }
     if (String(collaboratorUserId) === String(currentUserId.value)) { ElMessage.warning('不能把文档授权给自己'); return }
-    await docApi.grantCollaborator(docId, collaboratorUserId, collaboratorRole.value)
+    await docApi.grantCollaborator(docId, collaboratorUserId, collaboratorRole.value, collaboratorExpiry.value)
     ElMessage.success('授权成功，协作者打开链接即可协作')
     collaboratorQuery.value = ''
     await fetchShareCollaborators()
@@ -1745,6 +1752,7 @@ const scrollToBottom = () => { nextTick(() => {
 .grant-row { display: flex; gap: 8px; align-items: center; }
 .granted-list { margin-top: 12px; }
 .granted-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 13px; }
+.grant-expiry { color: #9a909f; font-size: 10px; }
 .granted-name { flex: 1; color: #1f2329; }
 .no-granted { font-size: 13px; color: #8f959e; padding: 8px 0; }
 .collab-hint { font-size: 13px; color: #646a73; margin: 0; line-height: 1.5; }
