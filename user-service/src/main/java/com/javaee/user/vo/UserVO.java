@@ -31,6 +31,12 @@ public class UserVO {
     /**
      * 角色
      */
+    private String nickname;
+
+    private String signature;
+
+    private String avatarFileId;
+
     private String role;
 
     /**

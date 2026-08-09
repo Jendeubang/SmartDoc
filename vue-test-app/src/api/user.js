@@ -14,6 +14,8 @@ export const userApi = {
         return request.get(`/users/${id}`)
     },
 
+    updateProfile: (data) => request.put('/users/profile', data),
+
     getUserByUsername: (username) => {
         return request.get('/users/lookup', {
             params: { username }

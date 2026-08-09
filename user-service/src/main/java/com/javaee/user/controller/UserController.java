@@ -8,6 +8,7 @@ package com.javaee.user.controller;
 import com.javaee.common.model.Result;
 import com.javaee.user.dto.LoginDTO;
 import com.javaee.user.dto.RegisterDTO;
+import com.javaee.user.dto.UserProfileUpdateDTO;
 import com.javaee.user.entity.User;
 import com.javaee.user.service.UserService;
 import com.javaee.user.vo.LoginVO;
@@ -76,6 +77,16 @@ public class UserController {
      * @param refreshToken 刷新令牌
      * @return 新的访问令牌
      */
+    @PutMapping("/profile")
+    @Operation(summary = "更新个人资料", description = "更新当前登录用户的昵称、个性签名和头像文件标识")
+    public Result<UserVO> updateProfile(
+            @RequestHeader(value = "X-User-Id", required = false) Long routedUserId,
+            @RequestBody UserProfileUpdateDTO dto) {
+        if (routedUserId == null) {
+            throw new com.javaee.common.exception.BusinessException("用户未认证，请先登录");
+        }
+        return Result.success(userService.updateProfile(routedUserId, dto));
+    }
     @GetMapping("/lookup")
     @Operation(summary = "根据用户名查询用户", description = "用于文档协作授权时查找协作者")
     public Result<UserVO> getUserByUsername(@Parameter(description = "用户名") @RequestParam String username) {

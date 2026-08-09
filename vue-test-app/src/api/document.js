@@ -73,6 +73,10 @@ export const docApi = {
         return request.get(`/documents/${id}/collaborators`)
     },
 
+    getParagraphLocks: (id) => request.get('/documents/' + id + '/paragraph-locks'),
+    acquireParagraphLock: (id, paragraphId) => request.post('/documents/' + id + '/paragraph-locks', { paragraphId }),
+    releaseParagraphLock: (id, paragraphId) => request.delete('/documents/' + id + '/paragraph-locks/' + paragraphId),
+
     submitToolboxJob: (data) => request.post('/documents/toolbox/jobs', data),
     listToolboxJobs: () => request.get('/documents/toolbox/jobs'),
     retryToolboxJob: (jobId) => request.post(`/documents/toolbox/jobs/${jobId}/retry`),

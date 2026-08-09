@@ -7,6 +7,7 @@ import com.javaee.common.utils.JwtUtils;
 import com.javaee.common.utils.ValidateUtils;
 import com.javaee.user.dto.LoginDTO;
 import com.javaee.user.dto.RegisterDTO;
+import com.javaee.user.dto.UserProfileUpdateDTO;
 import com.javaee.user.entity.User;
 import com.javaee.user.mapper.UserMapper;
 import com.javaee.user.service.UserService;
@@ -127,6 +128,34 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return userVO;
     }
 
+    @Override
+    public UserVO updateProfile(Long userId, UserProfileUpdateDTO dto) {
+        ValidateUtils.notNull(userId, "用户ID不能为空");
+        User user = getById(userId);
+        if (user == null) {
+            throw new BusinessException(ErrorCodeEnum.USER_NOT_FOUND);
+        }
+        String nickname = dto == null || dto.getNickname() == null ? null : dto.getNickname().trim();
+        String signature = dto == null || dto.getSignature() == null ? null : dto.getSignature().trim();
+        String avatarFileId = dto == null || dto.getAvatarFileId() == null ? null : dto.getAvatarFileId().trim();
+        if (nickname != null && nickname.length() > 50) {
+            throw new BusinessException("昵称不能超过 50 个字符");
+        }
+        if (signature != null && signature.length() > 160) {
+            throw new BusinessException("个性签名不能超过 160 个字符");
+        }
+        if (avatarFileId != null && avatarFileId.length() > 128) {
+            throw new BusinessException("头像文件标识不合法");
+        }
+        user.setNickname(nickname == null || nickname.isBlank() ? null : nickname);
+        user.setSignature(signature == null || signature.isBlank() ? null : signature);
+        user.setAvatarFileId(avatarFileId == null || avatarFileId.isBlank() ? null : avatarFileId);
+        user.setUpdateTime(LocalDateTime.now());
+        updateById(user);
+        UserVO vo = new UserVO();
+        BeanUtils.copyProperties(user, vo);
+        return vo;
+    }
     @Override
     public String refreshToken(String refreshToken) {
         ValidateUtils.notEmpty(refreshToken, "刷新令牌不能为空");

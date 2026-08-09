@@ -29,6 +29,12 @@ public class User {
     private String phone;
 
     // 角色
+    private String nickname;
+
+    private String signature;
+
+    private String avatarFileId;
+
     private String role;
 
     // 状态（0:禁用, 1:启用）

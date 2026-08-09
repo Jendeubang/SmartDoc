@@ -265,7 +265,7 @@
               <el-empty v-else description="预览加载失败，请下载原文件查看" />
             </div>
           </div>
-          <div v-else class="paper preserve-format" contenteditable="true" v-html="docContent" @mouseup="handleTextSelection" @input="handleInput"></div>
+          <div v-else class="paper preserve-format" contenteditable="true" v-html="docContent" @mouseup="handleTextSelection(); acquireParagraphLock()" @focusin="acquireParagraphLock" @keyup="acquireParagraphLock" @input="handleInput"></div>
         </div>
 
         <transition name="el-zoom-in-center">
@@ -424,6 +424,9 @@ const showHistory = ref(false); const versionList = ref([])
 const keywords = ref([]); const keywordsLoading = ref(false); const isRagMode = ref(false); const replaceOnWrite = ref(true)
 const { currentStep: editorProgressStep, startTracking: startProgressTracking } = useAgentProgress()
 const textStats = ref(null)
+const activeParagraphLock = ref('')
+const activeParagraphLockedByOther = ref(false)
+const paragraphLockOwner = ref('')
 // 分享协作弹窗
 const shareDialogVisible = ref(false)
 const shareLink = computed(() => `${window.location.origin}/editor/${docId}`)
@@ -524,7 +527,7 @@ const fitImage = () => {
   imageZoom.value = 1
 }
 
-onBeforeUnmount(clearImagePreview)
+onBeforeUnmount(() => { clearImagePreview(); releaseParagraphLock() })
 
 // 获取可用模型列表
 const fetchModels = async () => {
@@ -1445,7 +1448,52 @@ const askAiWithContext = (type) => {
 }
 const handleScroll = () => { if(showAiBall.value) showAiBall.value = false }
 const clearSelection = () => { selectedText.value = ''; showAiBall.value = false }
-const handleInput = () => { saveStatusText.value = '修改未保存' }
+const paragraphIdFromSelection = () => {
+  const paper = document.querySelector('.paper')
+  const selection = window.getSelection()
+  if (!paper || !selection?.rangeCount || !paper.contains(selection.anchorNode)) return 'p-0'
+  let node = selection.anchorNode.nodeType === Node.ELEMENT_NODE ? selection.anchorNode : selection.anchorNode.parentElement
+  while (node?.parentElement && node.parentElement !== paper) node = node.parentElement
+  const index = Math.max(0, [...paper.children].indexOf(node))
+  return 'p-' + index
+}
+const releaseParagraphLock = async () => {
+  const paragraphId = activeParagraphLock.value
+  activeParagraphLock.value = ''
+  activeParagraphLockedByOther.value = false
+  paragraphLockOwner.value = ''
+  if (!paragraphId || isChatMode.value || isSourcePreview.value) return
+  try { await docApi.releaseParagraphLock(docId, paragraphId) } catch { /* lock will expire */ }
+}
+const acquireParagraphLock = async () => {
+  if (isChatMode.value || isSourcePreview.value || !docId) return
+  const paragraphId = paragraphIdFromSelection()
+  if (paragraphId === activeParagraphLock.value && !activeParagraphLockedByOther.value) return
+  const previous = activeParagraphLock.value
+  if (previous && previous !== paragraphId) {
+    try { await docApi.releaseParagraphLock(docId, previous) } catch { /* lock will expire */ }
+  }
+  try {
+    const res = await docApi.acquireParagraphLock(docId, paragraphId)
+    const state = res.data || {}
+    activeParagraphLock.value = paragraphId
+    activeParagraphLockedByOther.value = !state.mine
+    paragraphLockOwner.value = state.ownerUserId || ''
+    if (!state.mine) ElMessage.warning('该段落正由协作人编辑，请稍后再试')
+  } catch {
+    activeParagraphLock.value = ''
+    activeParagraphLockedByOther.value = false
+  }
+}
+const handleInput = () => {
+  if (activeParagraphLockedByOther.value) {
+    const paper = document.querySelector('.paper')
+    if (paper) paper.innerHTML = docContent.value
+    ElMessage.warning('当前段落已被协作人锁定，内容未保存')
+    return
+  }
+  saveStatusText.value = '修改未保存'
+}
 const openHistoryDrawer = async () => { const res = await docApi.getVersions(docId); versionList.value = res.data; showHistory.value = true }
 const startNewChat = () => { chatHistory.value = []; chatTitle.value = '新对话' }
 const scrollToBottom = () => { nextTick(() => {

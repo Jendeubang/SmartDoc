@@ -3,6 +3,7 @@ package com.javaee.user.service;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.javaee.user.dto.LoginDTO;
 import com.javaee.user.dto.RegisterDTO;
+import com.javaee.user.dto.UserProfileUpdateDTO;
 import com.javaee.user.entity.User;
 import com.javaee.user.vo.LoginVO;
 import com.javaee.user.vo.UserVO;
@@ -45,4 +46,6 @@ public interface UserService extends IService<User> {
      * @return 新的访问令牌
      */
     String refreshToken(String refreshToken);
+
+    UserVO updateProfile(Long userId, UserProfileUpdateDTO dto);
 }

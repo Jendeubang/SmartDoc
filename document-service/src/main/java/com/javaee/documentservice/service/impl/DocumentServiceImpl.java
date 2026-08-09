@@ -256,7 +256,9 @@ public class DocumentServiceImpl implements DocumentService {
         if (document == null) {
             throw new BusinessException("文档不存在");
         }
-        documentAccessService.assertCanWrite(document, userId);
+        if (!documentAccessService.isOwner(document, userId)) {
+            throw new BusinessException("只有文档创建者可以删除文档");
+        }
 
         document.setStatus("deleted");
         document.setUpdateTime(LocalDateTime.now());

@@ -23,7 +23,7 @@
         <div class="aside-bottom">
           <el-dropdown trigger="click" placement="top-start" @command="handleUserCommand">
             <div class="user-profile">
-              <el-avatar :size="32" style="background-color: #3370ff; font-weight: bold; color: white;">
+              <el-avatar :size="32" :src="userAvatarUrl || undefined" style="background-color: #3370ff; font-weight: bold; color: white;">
                 {{ currentUserName.charAt(0).toUpperCase() }}
               </el-avatar>
               <span class="username">{{ currentUserName }}</span>
@@ -44,7 +44,7 @@
 
           <!-- AI 欢迎与对话区 (对标飞书 aily) -->
           <div class="ai-hero" v-if="!showDocLibrary">
-            <el-avatar :size="64" style="background-color: #3370ff; font-size: 28px; font-weight: bold; margin-bottom: 24px; color: white;">
+            <el-avatar :size="64" :src="userAvatarUrl || undefined" style="background-color: #3370ff; font-size: 28px; font-weight: bold; margin-bottom: 24px; color: white;">
               {{ currentUserName.charAt(0).toUpperCase() }}
             </el-avatar>
             <h1 class="hero-title">Hi {{ currentUserName }}，今天需要我帮你分析什么？</h1>
@@ -422,6 +422,25 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="profileDialogVisible" title="个人信息" width="440px" @closed="resetProfileForm">
+      <div class="profile-avatar-row">
+        <el-avatar :size="76" :src="profileAvatarPreview || userAvatarUrl || undefined" class="profile-avatar">{{ profileForm.nickname?.charAt(0)?.toUpperCase() || currentUserName.charAt(0).toUpperCase() }}</el-avatar>
+        <div>
+          <el-button size="small" type="primary" plain @click="avatarInputRef?.click()">更换头像</el-button>
+          <input ref="avatarInputRef" type="file" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none" @change="handleAvatarSelected" />
+          <p class="profile-upload-hint">支持 JPG、PNG、WEBP、GIF，大小不超过 2MB</p>
+        </div>
+      </div>
+      <el-form :model="profileForm" label-position="top">
+        <el-form-item label="昵称"><el-input v-model="profileForm.nickname" maxlength="50" show-word-limit placeholder="输入展示昵称" /></el-form-item>
+        <el-form-item label="个性签名"><el-input v-model="profileForm.signature" type="textarea" :rows="3" maxlength="160" show-word-limit placeholder="用一句话介绍自己" /></el-form-item>
+        <el-form-item label="用户 ID"><el-input :model-value="getCurrentUserId()" disabled /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="profileDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="profileSaving" @click="saveProfile">保存资料</el-button>
+      </template>
+    </el-dialog>
   </div>
 
 </template>
@@ -486,14 +505,67 @@ const currentModelName = computed(() => {
 })
 
 // 获取用户信息
+const releaseAvatarUrl = () => {
+  if (userAvatarUrl.value) URL.revokeObjectURL(userAvatarUrl.value)
+  userAvatarUrl.value = ''
+}
+const loadAvatar = async fileId => {
+  releaseAvatarUrl()
+  if (!fileId) return
+  try { userAvatarUrl.value = URL.createObjectURL(await fileApi.preview(fileId)) } catch { /* fallback to initials */ }
+}
 const fetchUser = async () => {
   const uid = getCurrentUserId()
-  if (uid) {
-    try {
-      const res = await userApi.getUserInfo(uid)
-      currentUserName.value = res.data.username || 'User'
-    } catch (e) { currentUserName.value = '测试用户' }
-  }
+  if (!uid) return
+  try {
+    const res = await userApi.getUserInfo(uid)
+    const user = res.data || {}
+    currentUserName.value = user.nickname || user.username || 'User'
+    profileForm.value = { nickname: user.nickname || user.username || '', signature: user.signature || '', avatarFileId: user.avatarFileId || '' }
+    await loadAvatar(user.avatarFileId)
+  } catch (e) { currentUserName.value = '测试用户' }
+}
+const resetProfileForm = () => {
+  profileSaving.value = false
+  avatarFile.value = null
+  if (profileAvatarPreview.value) URL.revokeObjectURL(profileAvatarPreview.value)
+  profileAvatarPreview.value = ''
+}
+const openProfile = () => { profileDialogVisible.value = true }
+const handleAvatarSelected = event => {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  if (!file.type.startsWith('image/')) { ElMessage.warning('请选择图片文件'); return }
+  if (file.size > 2 * 1024 * 1024) { ElMessage.warning('头像不能超过 2MB'); return }
+  if (profileAvatarPreview.value) URL.revokeObjectURL(profileAvatarPreview.value)
+  avatarFile.value = file
+  profileAvatarPreview.value = URL.createObjectURL(file)
+}
+const saveProfile = async () => {
+  profileSaving.value = true
+  try {
+    let avatarFileId = profileForm.value.avatarFileId || ''
+    if (avatarFile.value) {
+      const uploadRes = await fileApi.upload(avatarFile.value)
+      avatarFileId = uploadRes?.data?.fileId || uploadRes?.data?.id
+      if (!avatarFileId) throw new Error('头像上传失败')
+    }
+    const res = await userApi.updateProfile({ nickname: profileForm.value.nickname.trim(), signature: profileForm.value.signature.trim(), avatarFileId })
+    const user = res.data || {}
+    currentUserName.value = user.nickname || user.username || profileForm.value.nickname || 'User'
+    profileForm.value.avatarFileId = avatarFileId
+    if (profileAvatarPreview.value) {
+      releaseAvatarUrl()
+      userAvatarUrl.value = profileAvatarPreview.value
+      profileAvatarPreview.value = ''
+    } else await loadAvatar(avatarFileId)
+    avatarFile.value = null
+    profileDialogVisible.value = false
+    ElMessage.success('个人资料已保存')
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.message || error?.message || '保存个人资料失败')
+  } finally { profileSaving.value = false }
 }
 
 const extensionOf = name => (String(name || '').match(/\.([^.]+)$/)?.[1] || '').toUpperCase()
@@ -555,7 +627,7 @@ const changeLibraryScope = async scope => {
   else if (scope === 'all' || scope === 'favorite') await fetchFiles()
 }
 
-onBeforeUnmount(releaseThumbnails)
+onBeforeUnmount(() => { releaseThumbnails(); releaseAvatarUrl(); if (profileAvatarPreview.value) URL.revokeObjectURL(profileAvatarPreview.value) })
 
 const fetchCategories = async () => {
   try {
@@ -1099,6 +1171,9 @@ const goToAIOps = () => {
 .user-profile { display: flex; align-items: center; gap: 10px; padding: 8px; cursor: pointer; border-radius: 8px; transition: 0.2s; }
 .user-profile:hover { background: #f2f3f5; }
 .username { font-size: 14px; font-weight: 500; color: #1f2329;}
+.profile-avatar-row { display: flex; align-items: center; gap: 18px; margin-bottom: 16px; }
+.profile-avatar { flex: 0 0 auto; background: #74698e; }
+.profile-upload-hint { margin: 8px 0 0; color: #99909f; font-size: 12px; }
 
 /* AI 欢迎区 */
 .feishu-main { padding: 0; display: flex; justify-content: center; overflow-y: auto; overflow-anchor: none; }
