@@ -41,6 +41,15 @@ public interface DocumentService {
      */
     void delete(String id, Long userId);
 
+    /** 获取当前用户回收站中的文档。 */
+    List<DocumentVO> getDeletedByUserId(Long userId);
+
+    /** 从回收站恢复文档。 */
+    DocumentVO restoreDeleted(String id, Long userId);
+
+    /** 永久删除回收站文档及其正文。 */
+    void purge(String id, Long userId);
+
     /**
      * 授权用户协作访问文档。
      */

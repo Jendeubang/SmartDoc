@@ -35,6 +35,8 @@ public class Document {
 
     private String status;
 
+    private String parseStatus;
+
     private Integer version;
 
     private String category;

@@ -151,6 +151,28 @@ public class DocumentController {
         return Result.success();
     }
 
+    @GetMapping("/trash")
+    @Operation(summary = "获取回收站", description = "获取当前用户软删除的文档")
+    public Result<List<DocumentVO>> getTrash() {
+        Long userId = requestUserContext.getRequiredUserId();
+        return Result.success(documentService.getDeletedByUserId(userId));
+    }
+
+    @PostMapping("/{id}/restore")
+    @Operation(summary = "恢复删除的文档", description = "将回收站文档恢复到云端文档库")
+    public Result<DocumentVO> restoreDeleted(@PathVariable String id) {
+        Long userId = requestUserContext.getRequiredUserId();
+        return Result.success(documentService.restoreDeleted(id, userId));
+    }
+
+    @DeleteMapping("/{id}/purge")
+    @Operation(summary = "永久删除文档", description = "永久删除回收站文档及其正文，此操作不可恢复")
+    public Result<Void> purge(@PathVariable String id) {
+        Long userId = requestUserContext.getRequiredUserId();
+        documentService.purge(id, userId);
+        return Result.success();
+    }
+
     /**
      * 获取文档详情
      * @param id 文档ID

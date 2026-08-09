@@ -71,6 +71,7 @@ public class DocumentSchemaInitializer implements ApplicationRunner {
                       `bucket_name` VARCHAR(128) COMMENT '文档内容所在MinIO桶',
                       `object_name` VARCHAR(512) COMMENT '文档内容在MinIO中的对象名',
                       `status` VARCHAR(20) DEFAULT 'active' COMMENT '状态：active-活跃，deleted-已删除',
+                      `parse_status` VARCHAR(20) DEFAULT 'ready' COMMENT '解析状态：parsing-ready-failed',
                       `version` INT DEFAULT 1 COMMENT '版本号',
                       `category` VARCHAR(50) COMMENT '分类',
                       `tags` TEXT COMMENT '标签（JSON格式）',
@@ -100,6 +101,8 @@ public class DocumentSchemaInitializer implements ApplicationRunner {
                     "ALTER TABLE `document` ADD COLUMN `object_name` VARCHAR(512) COMMENT '文档内容在MinIO中的对象名' AFTER `bucket_name`");
             addColumnIfMissing(connection, statement, "document", "status",
                     "ALTER TABLE `document` ADD COLUMN `status` VARCHAR(20) DEFAULT 'active' COMMENT '状态：active-活跃，deleted-已删除'");
+            addColumnIfMissing(connection, statement, "document", "parse_status",
+                    "ALTER TABLE `document` ADD COLUMN `parse_status` VARCHAR(20) DEFAULT 'ready' COMMENT '解析状态：parsing-ready-failed' AFTER `status`");
             addColumnIfMissing(connection, statement, "document", "version",
                     "ALTER TABLE `document` ADD COLUMN `version` INT DEFAULT 1 COMMENT '版本号'");
             addColumnIfMissing(connection, statement, "document", "category",

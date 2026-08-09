@@ -48,4 +48,10 @@
         SELECT * FROM document WHERE status = #{status} ORDER BY create_time DESC
     </select>
 
+    <select id="selectDeletedByUserId" resultType="com.javaee.documentservice.entity.Document">
+        SELECT * FROM document
+        WHERE user_id = #{userId} AND status = 'deleted'
+        ORDER BY update_time DESC
+    </select>
+
 </mapper>

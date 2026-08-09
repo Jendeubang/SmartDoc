@@ -76,6 +76,7 @@ public class DocumentServiceImpl implements DocumentService {
         document.setUserId(userId);
         document.setBucketName(documentContentService.getBucketName(userId));
         document.setStatus("active");
+        document.setParseStatus(dto.getFileId() == null || dto.getFileId().isBlank() ? "ready" : "parsing");
         document.setVersion(1);
         document.setCreatedBy(String.valueOf(userId));
         document.setCreateTime(LocalDateTime.now());
@@ -92,7 +93,7 @@ public class DocumentServiceImpl implements DocumentService {
         documentAccessService.grantOwnerAccess(document.getId(), document.getBucketName(), userId);
 
         // 通过fileId从file-service获取文件内容并解析
-        String content = "";
+        String content = dto.getContent() == null ? "" : dto.getContent();
         String fileName = "";
         if (dto.getFileId() != null && !dto.getFileId().isEmpty()) {
             try {
@@ -131,6 +132,9 @@ public class DocumentServiceImpl implements DocumentService {
             }
         }
 
+        document.setParseStatus(dto.getFileId() != null && !dto.getFileId().isBlank() && content.isBlank()
+                ? "failed" : "ready");
+        documentMapper.updateById(document);
         saveVersion(document, "初始版本", content);
 
         DocumentVO vo = convertToVO(document);
@@ -202,7 +206,11 @@ public class DocumentServiceImpl implements DocumentService {
             throw new BusinessException("Document does not exist");
         }
         documentAccessService.assertCanWrite(document, userId);
+        document.setParseStatus("parsing");
+        documentMapper.updateById(document);
         if (document.getFileId() == null || document.getFileId().isBlank()) {
+            document.setParseStatus("failed");
+            documentMapper.updateById(document);
             throw new BusinessException("This document has no original upload to reparse");
         }
 
@@ -217,6 +225,7 @@ public class DocumentServiceImpl implements DocumentService {
             }
             documentContentService.saveContentByKey(storageObjectName(document), storageBucketName(document), content);
             document.setSummary(DocumentParserUtil.getSummary(content, 200));
+            document.setParseStatus("ready");
             document.setVersion(document.getVersion() + 1);
             document.setUpdateTime(LocalDateTime.now());
             documentMapper.updateById(document);
@@ -224,8 +233,12 @@ public class DocumentServiceImpl implements DocumentService {
             vo.setContent(content);
             return vo;
         } catch (BusinessException exception) {
+            document.setParseStatus("failed");
+            documentMapper.updateById(document);
             throw exception;
         } catch (Exception exception) {
+            document.setParseStatus("failed");
+            documentMapper.updateById(document);
             log.error("Failed to reparse document source: id={}", id, exception);
             throw new BusinessException("Reparse original upload failed: " + exception.getMessage());
         }
@@ -249,12 +262,50 @@ public class DocumentServiceImpl implements DocumentService {
         document.setUpdateTime(LocalDateTime.now());
         documentMapper.updateById(document);
 
-        // 删除MinIO中的文档内容（MinIO不可用时忽略错误）
-        try {
-            documentContentService.deleteContent(id, storageBucketName(document));
-        } catch (Exception e) {
-            log.warn("MinIO内容删除失败，仅软删除文档: documentId={}, error={}", id, e.getMessage());
+        // 回收站保留正文和原始文件，只有永久删除才清理存储。
+    }
+
+    @Override
+    public List<DocumentVO> getDeletedByUserId(Long userId) {
+        return documentMapper.selectDeletedByUserId(userId).stream()
+                .map(this::convertToVOWithoutContent)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional
+    public DocumentVO restoreDeleted(String id, Long userId) {
+        Document document = documentMapper.selectById(id);
+        if (document == null || !"deleted".equals(document.getStatus())) {
+            throw new BusinessException("回收站中不存在该文档");
         }
+        if (!documentAccessService.isOwner(document, userId)) {
+            throw new BusinessException("只有文档所有者可以恢复文档");
+        }
+        document.setStatus("active");
+        document.setUpdateTime(LocalDateTime.now());
+        documentMapper.updateById(document);
+        return convertToVOWithoutContent(document);
+    }
+
+    @Override
+    @Transactional
+    public void purge(String id, Long userId) {
+        Document document = documentMapper.selectById(id);
+        if (document == null || !"deleted".equals(document.getStatus())) {
+            throw new BusinessException("请先将文档移入回收站");
+        }
+        if (!documentAccessService.isOwner(document, userId)) {
+            throw new BusinessException("只有文档所有者可以永久删除文档");
+        }
+        try {
+            String storageId = document.getFileId() == null || document.getFileId().isBlank()
+                    ? document.getId() : document.getFileId();
+            documentContentService.deleteContent(storageId, storageBucketName(document));
+        } catch (Exception e) {
+            log.warn("永久删除时清理正文失败: documentId={}, error={}", id, e.getMessage());
+        }
+        documentMapper.deleteById(id);
     }
 
     @Override
@@ -433,6 +484,7 @@ public class DocumentServiceImpl implements DocumentService {
         vo.setTags(convertJsonToList(document.getTags()));
         vo.setVersion(document.getVersion());
         vo.setStatus(document.getStatus());
+        vo.setParseStatus(document.getParseStatus());
         vo.setCreatedBy(document.getCreatedBy());
         vo.setCreateTime(document.getCreateTime());
         vo.setUpdateTime(document.getUpdateTime());

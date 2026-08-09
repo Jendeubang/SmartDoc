@@ -7,7 +7,7 @@
         <div class="aside-top">
           <div class="brand">
             <div class="logo-box"><el-icon><Cpu /></el-icon></div>
-            <span class="brand-text">DocAI 妙搭</span></div>
+            <span class="brand-text">SmartDoc</span></div>
           <div class="nav-menu">
             <div class="nav-item" :class="{ active: !showDocLibrary }" @click="goToWorkbench"><el-icon><Monitor /></el-icon> 我的工作台</div>
             <div class="nav-item" :class="{ active: showDocLibrary }" @click="goToDocLibrary"><el-icon><FolderOpened /></el-icon> 云端文档库</div>
@@ -76,7 +76,7 @@
               <!-- 弹出菜单：上传入口隐藏在这里 -->
               <div class="popover-content">
                 <div class="menu-list">
-                  <input type="file" ref="fileInputRef" style="display: none;" @change="onFileSelected" />
+                  <input type="file" ref="fileInputRef" style="display: none;" accept=".pdf,.doc,.docx,.txt,.md,.ppt,.pptx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp" @change="onFileSelected" />
                   <div class="menu-item" @click="triggerUpload">
                     <el-icon><Paperclip /></el-icon> 上传文件并由 AI 解析
                   </div>
@@ -102,7 +102,15 @@
                 <p class="library-subtitle">共 {{ docList.length }} 篇文档</p>
               </div>
               <div class="library-actions">
-                <el-button type="primary" size="small" icon="Upload" @click="triggerUpload">上传文档</el-button>
+                <el-radio-group v-model="libraryScope" size="small" @change="changeLibraryScope">
+                  <el-radio-button label="all">全部</el-radio-button>
+                  <el-radio-button label="favorite">收藏</el-radio-button>
+                  <el-radio-button label="trash">回收站</el-radio-button>
+                </el-radio-group>
+                <el-select v-if="libraryScope !== 'trash'" v-model="categoryFilter" size="small" clearable placeholder="全部分类" style="width: 120px">
+                  <el-option v-for="category in categoryOptions" :key="category" :label="category" :value="category" />
+                </el-select>
+                <el-button v-if="libraryScope !== 'trash'" type="primary" size="small" icon="Upload" @click="triggerUpload">上传文档</el-button>
                 <el-input
                     v-model="search"
                     placeholder="搜索文档标题..."
@@ -150,8 +158,14 @@
             <!-- 文档卡片网格（全宽） -->
             <div class="card-grid doc-library-grid" v-if="filteredList.length > 0">
               <div class="doc-card" v-for="doc in filteredList" :key="doc.id">
-                <div class="card-cover" :class="doc.color" @click="goToEditor(doc.id, doc.name)">
-                  <el-icon :size="48" color="rgba(255,255,255,0.9)"><Document /></el-icon>
+                <div class="card-cover" :class="doc.color" @click="libraryScope !== 'trash' && goToEditor(doc.id, doc.name)">
+                  <img v-if="doc.thumbnail" :src="doc.thumbnail" :alt="doc.name" class="document-thumbnail" />
+                  <el-icon v-else :size="48" color="rgba(255,255,255,0.9)">
+                    <Picture v-if="doc.kind === 'image'" />
+                    <Tickets v-else-if="doc.kind === 'pdf'" />
+                    <Document v-else />
+                  </el-icon>
+                  <span class="file-kind">{{ doc.extension || 'DOC' }}</span>
                 </div>
                 <div class="card-info">
                   <div class="info-top">
@@ -161,18 +175,24 @@
                     <el-dropdown trigger="click" @command="(cmd) => handleCardCommand(cmd, doc)">
                       <el-icon class="more-btn"><MoreFilled /></el-icon>
                       <template #dropdown>
-                        <el-dropdown-menu>
-                          <el-dropdown-item command="download" icon="Download">下载到本地</el-dropdown-item>
-                          <el-dropdown-item command="delete" icon="Delete" style="color: #F56C6C">删除文档</el-dropdown-item>
+                        <el-dropdown-menu v-if="libraryScope !== 'trash'">
+                          <el-dropdown-item command="favorite" icon="Star">{{ doc.favorite ? '取消收藏' : '收藏文档' }}</el-dropdown-item>
+                          <el-dropdown-item command="rename" icon="EditPen">重命名</el-dropdown-item>
+                          <el-dropdown-item command="category" icon="Folder">移动分类</el-dropdown-item>
+                          <el-dropdown-item command="download" icon="Download">下载原文件</el-dropdown-item>
+                          <el-dropdown-item command="delete" icon="Delete" divided style="color: #F56C6C">移入回收站</el-dropdown-item>
+                        </el-dropdown-menu>
+                        <el-dropdown-menu v-else>
+                          <el-dropdown-item command="restore" icon="RefreshLeft">恢复文档</el-dropdown-item>
+                          <el-dropdown-item command="purge" icon="Delete" divided style="color: #F56C6C">永久删除</el-dropdown-item>
                         </el-dropdown-menu>
                       </template>
                     </el-dropdown>
                   </div>
                   <div class="doc-meta">
                     <span>{{ doc.time }}</span>
-                    <el-tag size="small" :type="doc.analyzed ? 'success' : 'info'" round effect="light">
-                      {{ doc.analyzed ? '已处理' : '待处理' }}
-                    </el-tag>
+                    <span class="doc-tags"><el-icon v-if="doc.favorite"><StarFilled /></el-icon><em>{{ doc.category }}</em></span>
+                    <el-tag size="small" :type="statusType(doc)" round effect="light">{{ statusLabel(doc) }}</el-tag>
                   </div>
                 </div>
               </div>
@@ -205,8 +225,14 @@
               <div class="doc-card" v-for="doc in filteredList" :key="doc.id">
 
                 <!-- 卡片上半部分渐变封面 -->
-                <div class="card-cover" :class="doc.color" @click="goToEditor(doc.id, doc.name)">
-                  <el-icon :size="48" color="rgba(255,255,255,0.9)"><Document /></el-icon>
+                <div class="card-cover" :class="doc.color" @click="libraryScope !== 'trash' && goToEditor(doc.id, doc.name)">
+                  <img v-if="doc.thumbnail" :src="doc.thumbnail" :alt="doc.name" class="document-thumbnail" />
+                  <el-icon v-else :size="48" color="rgba(255,255,255,0.9)">
+                    <Picture v-if="doc.kind === 'image'" />
+                    <Tickets v-else-if="doc.kind === 'pdf'" />
+                    <Document v-else />
+                  </el-icon>
+                  <span class="file-kind">{{ doc.extension || 'DOC' }}</span>
                 </div>
 
                 <!-- 卡片下半部分 -->
@@ -218,19 +244,24 @@
                     <el-dropdown trigger="click" @command="(cmd) => handleCardCommand(cmd, doc)">
                       <el-icon class="more-btn"><MoreFilled /></el-icon>
                       <template #dropdown>
-                        <el-dropdown-menu>
-                          <!-- 下载、删除选项 -->
-                          <el-dropdown-item command="download" icon="Download">下载到本地</el-dropdown-item>
-                          <el-dropdown-item command="delete" icon="Delete" style="color: #F56C6C">删除文档</el-dropdown-item>
+                        <el-dropdown-menu v-if="libraryScope !== 'trash'">
+                          <el-dropdown-item command="favorite" icon="Star">{{ doc.favorite ? '取消收藏' : '收藏文档' }}</el-dropdown-item>
+                          <el-dropdown-item command="rename" icon="EditPen">重命名</el-dropdown-item>
+                          <el-dropdown-item command="category" icon="Folder">移动分类</el-dropdown-item>
+                          <el-dropdown-item command="download" icon="Download">下载原文件</el-dropdown-item>
+                          <el-dropdown-item command="delete" icon="Delete" divided style="color: #F56C6C">移入回收站</el-dropdown-item>
+                        </el-dropdown-menu>
+                        <el-dropdown-menu v-else>
+                          <el-dropdown-item command="restore" icon="RefreshLeft">恢复文档</el-dropdown-item>
+                          <el-dropdown-item command="purge" icon="Delete" divided style="color: #F56C6C">永久删除</el-dropdown-item>
                         </el-dropdown-menu>
                       </template>
                     </el-dropdown>
                   </div>
                   <div class="doc-meta">
                     <span>{{ doc.time }}</span>
-                    <el-tag size="small" :type="doc.analyzed ? 'success' : 'info'" round effect="light">
-                      {{ doc.analyzed ? '已处理' : '待处理' }}
-                    </el-tag>
+                    <span class="doc-tags"><el-icon v-if="doc.favorite"><StarFilled /></el-icon><em>{{ doc.category }}</em></span>
+                    <el-tag size="small" :type="statusType(doc)" round effect="light">{{ statusLabel(doc) }}</el-tag>
                   </div>
                 </div>
               </div>
@@ -302,7 +333,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { fileApi } from '../../api/file'
@@ -317,6 +348,9 @@ const loading = ref(false)
 const showDocLibrary = ref(false)
 const currentUserName = ref('User')
 const docList = ref([])
+const libraryScope = ref('all')
+const categoryFilter = ref('')
+const thumbnailUrls = new Set()
 const search = ref('')
 const aiTask = ref('')
 const fileInputRef = ref(null)
@@ -352,31 +386,64 @@ const fetchUser = async () => {
   }
 }
 
-// 获取文档列表 (从 8084 获取)
+const extensionOf = name => (String(name || '').match(/\.([^.]+)$/)?.[1] || '').toUpperCase()
+const kindOf = name => /\.(jpe?g|png|gif|webp)$/i.test(name || '') ? 'image' : /\.pdf$/i.test(name || '') ? 'pdf' : 'document'
+const mapDocument = item => ({
+  id: item.id,
+  fileId: item.fileId,
+  name: item.title || '未命名文档',
+  time: item.createTime ? new Date(item.createTime).toLocaleDateString() : '未知',
+  analyzed: !!item.summary || getProcessedDocumentIds().includes(String(item.id)),
+  parseStatus: item.parseStatus || 'ready',
+  category: item.category || '默认分类',
+  tags: Array.isArray(item.tags) ? item.tags : [],
+  favorite: Array.isArray(item.tags) && item.tags.includes('_favorite'),
+  extension: extensionOf(item.title),
+  kind: kindOf(item.title),
+  thumbnail: '',
+  color: ['bg-blue', 'bg-orange', 'bg-green', 'bg-purple'][Math.abs(String(item.id || '').split('').reduce((sum, char) => sum + char.charCodeAt(0), 0)) % 4]
+})
+
+const releaseThumbnails = () => {
+  thumbnailUrls.forEach(url => URL.revokeObjectURL(url))
+  thumbnailUrls.clear()
+}
+
+const hydrateThumbnails = async documents => {
+  releaseThumbnails()
+  const targets = documents.filter(doc => doc.kind === 'image' && doc.fileId).slice(0, 16)
+  await Promise.all(targets.map(async doc => {
+    try {
+      const blob = await fileApi.preview(doc.fileId)
+      const url = URL.createObjectURL(blob)
+      thumbnailUrls.add(url)
+      doc.thumbnail = url
+    } catch { /* 卡片图标降级 */ }
+  }))
+}
+
+// 获取用户文档或回收站列表
 const fetchFiles = async () => {
   const uid = getCurrentUserId()
-  if (!uid) {
-    router.push('/login')
-    return
-  }
+  if (!uid) { router.push('/login'); return }
   loading.value = true
   try {
-    const res = await docApi.getUserDocs(uid)
-    if (res.data && Array.isArray(res.data)) {
-      docList.value = res.data.map(item => ({
-        id: item.id,
-        fileId: item.fileId,
-        name: item.title || '未命名文档',
-        time: item.createTime ? new Date(item.createTime).toLocaleDateString() : '未知',
-        analyzed: !!item.summary || getProcessedDocumentIds().includes(String(item.id)),
-        color: ['bg-blue', 'bg-orange', 'bg-green', 'bg-purple'][Math.floor(Math.random() * 4)]
-      }))
-    }
+    const res = libraryScope.value === 'trash' ? await docApi.getTrash() : await docApi.getUserDocs(uid)
+    docList.value = Array.isArray(res.data) ? res.data.map(mapDocument) : []
+    if (libraryScope.value !== 'trash') await hydrateThumbnails(docList.value)
+    else releaseThumbnails()
   } catch (e) {
     console.error('拉取列表失败', e)
   } finally { loading.value = false }
 }
 
+const changeLibraryScope = async scope => {
+  categoryFilter.value = ''
+  if (scope === 'trash' || docList.value.some(doc => doc.status === 'deleted')) await fetchFiles()
+  else if (scope === 'all' || scope === 'favorite') await fetchFiles()
+}
+
+onBeforeUnmount(releaseThumbnails)
 // 获取 AI 模型列表
 const fetchModels = async () => {
   modelsLoading.value = true
@@ -400,7 +467,14 @@ const fetchModels = async () => {
 
 onMounted(() => { fetchUser(); fetchFiles(); fetchModels() })
 
-const filteredList = computed(() => docList.value.filter(d => d.name.toLowerCase().includes(search.value.toLowerCase())))
+const categoryOptions = computed(() => [...new Set(docList.value.map(doc => doc.category).filter(Boolean))])
+const filteredList = computed(() => docList.value.filter(doc => {
+  if (libraryScope.value === 'favorite' && !doc.favorite) return false
+  if (categoryFilter.value && doc.category !== categoryFilter.value) return false
+  return doc.name.toLowerCase().includes(search.value.toLowerCase())
+}))
+const statusLabel = doc => doc.parseStatus === 'parsing' ? '解析中' : doc.parseStatus === 'failed' ? '解析失败' : doc.analyzed ? '已处理' : '已解析'
+const statusType = doc => doc.parseStatus === 'parsing' ? 'warning' : doc.parseStatus === 'failed' ? 'danger' : doc.analyzed ? 'success' : 'info'
 
 const processedDocumentsKey = () => `smartdoc_processed_documents_${getCurrentUserId() || 'guest'}`
 
@@ -434,14 +508,8 @@ const handleSearch = async () => {
     const res = await docApi.searchDocs(search.value)
 
     if (res.data) {
-      docList.value = res.data.map(item => ({
-        id: item.id,
-        fileId: item.fileId,
-        name: item.title || '未命名文档',
-        time: item.createTime ? new Date(item.createTime).toLocaleDateString() : '未知',
-        analyzed: !!item.summary || getProcessedDocumentIds().includes(String(item.id)),
-        color: ['bg-blue', 'bg-orange', 'bg-green', 'bg-purple'][Math.floor(Math.random() * 4)]
-      }))
+      docList.value = res.data.map(mapDocument)
+      await hydrateThumbnails(docList.value)
     }
     ElMessage.success(`搜索到 ${docList.value.length} 篇相关文档`)
   } catch (e) {
@@ -487,47 +555,85 @@ const onFileSelected = async (event) => {
   }
 }
 
-// 卡片逻辑(删除下载)
-const handleCardCommand = async (cmd, doc) => {
-  if (cmd === 'delete') {
-    ElMessageBox.confirm(`确定要永久删除《${doc.name}》吗？`).then(async () => {
-      loading.value = true
-      try {
-        await docApi.deleteDoc(doc.id)
-        if (doc.fileId) await fileApi.delete(doc.fileId).catch(()=>{})
-        ElMessage.success('已删除')
-        fetchFiles()
-      } catch (e) { ElMessage.error('删除失败') }
-      finally { loading.value = false }
-    }).catch(() => {})
-  }
-  // 下载部分
-  else if (cmd === 'download') {
-    loading.value = true
-    try {
-      const res = await docApi.getDocDetail(doc.id)
-      const content = res.data.content || ""
-
-      // 使用 pre 标签保护格式
-      const wordHtml = `
-        <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
-        <head><meta charset='utf-8'></head>
-        <body style="font-family: sans-serif;">
-          <pre style="white-space: pre-wrap;">${content}</pre>
-        </body>
-        </html>`
-
-      const blob = new Blob([wordHtml], { type: 'application/msword' })
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url; link.setAttribute('download', `[最新]_${doc.name}.doc`)
-      document.body.appendChild(link); link.click(); document.body.removeChild(link)
-      window.URL.revokeObjectURL(url); ElMessage.success('下载完成')
-    } catch (e) { ElMessage.error('获取最新内容失败') }
-    finally { loading.value = false }
-  }
+const downloadBlob = (blob, fileName) => {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }
 
+// 文档卡片操作
+const handleCardCommand = async (cmd, doc) => {
+  if (cmd === 'favorite') {
+    const tags = new Set(doc.tags || [])
+    doc.favorite ? tags.delete('_favorite') : tags.add('_favorite')
+    await docApi.updateDoc(doc.id, { tags: [...tags], changeLog: doc.favorite ? '取消收藏' : '收藏文档' })
+    doc.tags = [...tags]
+    doc.favorite = !doc.favorite
+    ElMessage.success(doc.favorite ? '已收藏' : '已取消收藏')
+    return
+  }
+  if (cmd === 'rename') {
+    try {
+      const { value } = await ElMessageBox.prompt('请输入新的文档名称', '重命名', { inputValue: doc.name, inputPattern: /\S+/, inputErrorMessage: '名称不能为空' })
+      await docApi.updateDoc(doc.id, { title: value.trim(), changeLog: '重命名文档' })
+      doc.name = value.trim(); doc.extension = extensionOf(doc.name); doc.kind = kindOf(doc.name)
+      ElMessage.success('重命名成功')
+    } catch { /* 用户取消 */ }
+    return
+  }
+  if (cmd === 'category') {
+    try {
+      const { value } = await ElMessageBox.prompt('输入分类名称，例如：学习资料、项目文档', '移动分类', { inputValue: doc.category === '默认分类' ? '' : doc.category, inputPattern: /\S+/, inputErrorMessage: '分类不能为空' })
+      await docApi.updateDoc(doc.id, { category: value.trim(), changeLog: '调整文档分类' })
+      doc.category = value.trim(); ElMessage.success('分类已更新')
+    } catch { /* 用户取消 */ }
+    return
+  }
+  if (cmd === 'delete') {
+    try {
+      await ElMessageBox.confirm(`确定将《${doc.name}》移入回收站吗？原文件仍会保留。`, '移入回收站')
+      loading.value = true
+      await docApi.deleteDoc(doc.id)
+      ElMessage.success('已移入回收站，可随时恢复')
+      await fetchFiles()
+    } catch { /* 用户取消 */ } finally { loading.value = false }
+    return
+  }
+  if (cmd === 'restore') {
+    await docApi.restoreDeleted(doc.id)
+    ElMessage.success('文档已恢复')
+    await fetchFiles()
+    return
+  }
+  if (cmd === 'purge') {
+    try {
+      await ElMessageBox.confirm(`永久删除《${doc.name}》后不可恢复，确定继续吗？`, '永久删除', { type: 'warning', confirmButtonText: '永久删除' })
+      await docApi.purgeDoc(doc.id)
+      if (doc.fileId) await fileApi.delete(doc.fileId).catch(() => {})
+      ElMessage.success('已永久删除')
+      await fetchFiles()
+    } catch { /* 用户取消 */ }
+    return
+  }
+  if (cmd === 'download') {
+    loading.value = true
+    try {
+      if (doc.fileId) {
+        downloadBlob(await fileApi.download(doc.fileId), doc.name)
+      } else {
+        const res = await docApi.getDocDetail(doc.id)
+        const blob = new Blob([res.data.content || ''], { type: 'text/plain;charset=utf-8' })
+        downloadBlob(blob, `${doc.name}.txt`)
+      }
+      ElMessage.success('下载完成')
+    } catch { ElMessage.error('文件下载失败') } finally { loading.value = false }
+  }
+}
 // 一键清理文档
 const clearDirtyData = () => {
   ElMessageBox.confirm('这会强行清空列表里所有的文档记录，确定吗？').then(async () => {
@@ -633,8 +739,13 @@ const goToToolbox = () => {
   router.push('/toolbox')
 }
 
-const goToWorkbench = () => {
+const goToWorkbench = async () => {
   showDocLibrary.value = false
+  if (libraryScope.value !== 'all') {
+    libraryScope.value = 'all'
+    categoryFilter.value = ''
+    await fetchFiles()
+  }
 }
 
 const goToAIOps = () => {
@@ -700,7 +811,12 @@ const goToAIOps = () => {
 .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 24px; }
 .doc-card { background: #fff; border-radius: 12px; border: 1px solid #ebeef5; overflow: hidden; transition: 0.3s; }
 .doc-card:hover { transform: translateY(-4px); box-shadow: 0 12px 24px rgba(31, 35, 41, 0.08); }
-.card-cover { height: 130px; display: flex; align-items: center; justify-content: center; position: relative; }
+.card-cover { height: 130px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; }
+.document-thumbnail { width: 100%; height: 100%; object-fit: cover; transition: transform .25s ease; }
+.doc-card:hover .document-thumbnail { transform: scale(1.04); }
+.file-kind { position: absolute; right: 10px; bottom: 9px; min-width: 34px; padding: 3px 7px; border-radius: 999px; background: rgba(50, 42, 59, .48); color: #fff; text-align: center; font-size: 10px; font-weight: 700; backdrop-filter: blur(6px); }
+.doc-tags { min-width: 0; display: inline-flex; align-items: center; gap: 3px; color: #8b7da0; }
+.doc-tags em { max-width: 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-style: normal; }
 .card-info { padding: 12px 16px; }
 .info-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .doc-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #1f2329; cursor: pointer; flex: 1; }

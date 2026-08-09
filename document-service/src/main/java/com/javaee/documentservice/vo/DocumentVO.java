@@ -37,6 +37,8 @@ public class DocumentVO {
 
     private String status;
 
+    private String parseStatus;
+
     private String createdBy;
 
     private LocalDateTime createTime;

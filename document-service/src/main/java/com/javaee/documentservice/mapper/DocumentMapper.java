@@ -26,4 +26,6 @@ public interface DocumentMapper extends BaseMapper<Document> {
     List<Document> searchByKeyword(@Param("keyword") String keyword);
 
     List<Document> selectByStatus(@Param("status") String status);
+
+    List<Document> selectDeletedByUserId(@Param("userId") Long userId);
 }

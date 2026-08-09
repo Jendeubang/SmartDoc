@@ -15,6 +15,8 @@ public class DocumentCreateDTO {
 
     private String fileId;
 
+    private String content;
+
     private String category;
 
     private List<String> tags;

@@ -48,6 +48,12 @@ export const docApi = {
         return request.delete(`/documents/${id}`)
     },
 
+    getTrash: () => request.get('/documents/trash'),
+
+    restoreDeleted: (id) => request.post(`/documents/${id}/restore`),
+
+    purgeDoc: (id) => request.delete(`/documents/${id}/purge`),
+
     grantCollaborator: (id, collaboratorUserId, role = 'editor') => {
         return request.post(`/documents/${id}/collaborators/${collaboratorUserId}`, null, {
             params: { role }

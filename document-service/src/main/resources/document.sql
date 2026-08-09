@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS `document` (
   `bucket_name` VARCHAR(128) COMMENT '文档内容所在MinIO桶',
   `object_name` VARCHAR(512) COMMENT '文档内容在MinIO中的对象名',
   `status` VARCHAR(20) DEFAULT 'active' COMMENT '状态：active-活跃，deleted-已删除',
+  `parse_status` VARCHAR(20) DEFAULT 'ready' COMMENT '解析状态：parsing-ready-failed',
   `version` INT DEFAULT 1 COMMENT '版本号',
   `category` VARCHAR(50) COMMENT '分类',
   `tags` TEXT COMMENT '标签（JSON格式）',
@@ -67,6 +68,7 @@ CREATE TABLE IF NOT EXISTS `document_comment` (
   `created_by` VARCHAR(64) COMMENT '创建人',
   `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `status` VARCHAR(20) DEFAULT 'active' COMMENT '状态：active-活跃，deleted-已删除',
+  `parse_status` VARCHAR(20) DEFAULT 'ready' COMMENT '解析状态：parsing-ready-failed',
   INDEX `idx_document_id` (`document_id`),
   INDEX `idx_user_id` (`user_id`),
   INDEX `idx_parent_id` (`parent_id`)
@@ -84,6 +86,7 @@ CREATE TABLE IF NOT EXISTS `document_annotation` (
   `content` TEXT COMMENT '批注内容',
   `color` VARCHAR(20) COMMENT '批注颜色',
   `status` VARCHAR(20) DEFAULT 'active' COMMENT '状态：active-活跃，deleted-已删除',
+  `parse_status` VARCHAR(20) DEFAULT 'ready' COMMENT '解析状态：parsing-ready-failed',
   `created_by` VARCHAR(64) COMMENT '创建人',
   `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
