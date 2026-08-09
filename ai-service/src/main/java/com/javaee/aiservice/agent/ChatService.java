@@ -43,7 +43,24 @@ public class ChatService {
         }
         
         log.info("使用模型: {}", aiService.getModelType().getName());
-        return aiService.callChat(prompt);
+        RuntimeException lastError = null;
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                return aiService.callChat(prompt);
+            } catch (RuntimeException error) {
+                lastError = error;
+                if (attempt == 3) break;
+                long backoffMs = attempt == 1 ? 350L : 1000L;
+                log.warn("模型调用失败，准备第 {} 次重试: {}", attempt + 1, error.getMessage());
+                try {
+                    Thread.sleep(backoffMs);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw error;
+                }
+            }
+        }
+        throw lastError == null ? new IllegalStateException("模型调用失败") : lastError;
     }
 
     /**

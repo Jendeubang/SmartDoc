@@ -93,6 +93,7 @@ public class AgentController {
             return Result.fail("无效的分段策略: " + strategy);
         }
         Map<String, Object> metadata = userMetadata();
+        metadata.put("segmentStrategy", strategyType.name());
         Map<String, Object> result = knowledgeIndexAgent.indexDocumentAsync(documentId, content, metadata);
         return Result.success(result);
     }

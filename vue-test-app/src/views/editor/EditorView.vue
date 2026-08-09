@@ -50,6 +50,12 @@
               <div v-if="msg.role === 'user'" class="user-bubble preserve-format">{{ msg.text }}</div>
               <div v-else class="ai-structured-card">
                 <div class="card-body preserve-format">{{ msg.text }}</div>
+                <div v-if="msg.sources?.length" class="message-sources">
+                  <div class="sources-heading">参考来源 · {{ msg.sources.length }}</div>
+                  <button v-for="(source, sourceIndex) in msg.sources" :key="`${source.documentId}-${sourceIndex}`" type="button" class="source-card" @click="openSourceDocument(source)">
+                    <span>{{ sourceIndex + 1 }}</span><div><strong>{{ source.title }}</strong><small>{{ source.segmentTitle || '相关片段' }}<template v-if="source.score"> · 匹配度 {{ source.score }}%</template></small><p v-if="source.excerpt">{{ source.excerpt }}</p></div>
+                  </button>
+                </div>
 
                 <div v-if="msg.actionResult" class="agent-action-box" style="margin-top: 16px;">
                   <el-divider border-style="dashed" style="margin: 12px 0;" />
@@ -283,6 +289,12 @@
         <div class="chat-area" ref="sidebarChatRef">
           <div v-for="(msg, i) in chatHistory" :key="i" :class="['chat-bubble', msg.role]">
             <div class="preserve-format">{{ msg.text }}</div>
+            <div v-if="msg.sources?.length" class="message-sources compact">
+              <div class="sources-heading">参考来源 · {{ msg.sources.length }}</div>
+              <button v-for="(source, sourceIndex) in msg.sources" :key="`${source.documentId}-${sourceIndex}`" type="button" class="source-card" @click="openSourceDocument(source)">
+                <span>{{ sourceIndex + 1 }}</span><div><strong>{{ source.title }}</strong><small>{{ source.segmentTitle || '相关片段' }}</small></div>
+              </button>
+            </div>
 
             <div v-if="msg.actionResult" class="agent-action-box" style="margin-top: 10px;">
               <el-divider border-style="dashed" style="margin: 8px 0;" />
@@ -727,7 +739,7 @@ const fetchChatDocuments = async () => {
 }
 
 const buildSelectedDocumentContext = async () => {
-  if (!selectedChatDocumentIds.value.length) return { content: '', ids: [], titles: [] }
+  if (!selectedChatDocumentIds.value.length) return { content: '', ids: [], titles: [], sources: [] }
 
   const selectedIds = [...selectedChatDocumentIds.value]
   const details = await Promise.all(selectedIds.map(async id => {
@@ -748,8 +760,43 @@ const buildSelectedDocumentContext = async () => {
   return {
     ids: selectedIds,
     titles: documents.map(doc => doc.title),
+    sources: documents.map(doc => ({ documentId: doc.id, title: doc.title, segmentTitle: '已选择文档', excerpt: doc.content.slice(0, 180) })),
     content: documents.map(doc => `【${doc.title}】\n${doc.content || '（该文档尚无可读取正文，请结合知识库检索回答。）'}`).join('\n\n').slice(0, 12000)
   }
+}
+const normalizeSourceDocumentId = result => {
+  const explicit = result?.documentId || result?.metadata?.documentId
+  if (explicit) return String(explicit)
+  return String(result?.id || '').split('_segment_')[0].split(':segment:')[0]
+}
+
+const extractRagSources = toolResults => {
+  const collected = []
+  for (const tool of Array.isArray(toolResults) ? toolResults : []) {
+    if (!['rag-search', 'rag-answer'].includes(tool?.toolName)) continue
+    const results = tool?.data?.results || tool?.data?.retrieved || []
+    for (const result of Array.isArray(results) ? results : []) {
+      const documentId = normalizeSourceDocumentId(result)
+      if (!documentId) continue
+      const known = chatDocuments.value.find(item => String(item.id) === documentId)
+      const rawScore = Number(result.rerankScore ?? result.similarity ?? result.score)
+      collected.push({ documentId, title: result.documentTitle || result.title || known?.title || `文档 ${documentId}`, segmentTitle: result.segmentTitle || (result.segmentIndex !== undefined ? `第 ${Number(result.segmentIndex) + 1} 个片段` : '知识库片段'), excerpt: String(result.content || '').replace(/\s+/g, ' ').trim().slice(0, 180), score: Number.isFinite(rawScore) && rawScore > 0 ? Math.round(rawScore <= 1 ? rawScore * 100 : rawScore) : null })
+    }
+  }
+  return collected
+}
+
+const mergeSources = (...groups) => {
+  const unique = new Map()
+  groups.flat().filter(Boolean).forEach(source => {
+    const key = `${source.documentId}-${source.segmentTitle || ''}`
+    if (!unique.has(key)) unique.set(key, source)
+  })
+  return [...unique.values()].slice(0, 8)
+}
+
+const openSourceDocument = source => {
+  if (source?.documentId) router.push(`/editor/${source.documentId}`)
 }
 const handleSend = async () => {
   if (!userMsg.value.trim() || isAiThinking.value) return
@@ -801,11 +848,13 @@ const handleSend = async () => {
     let finalPrompt = q
     let chatDocumentContext = ''
     let chatDocumentIds = []
+    let chatDocumentSources = []
 
     if (isChatMode.value) {
       const selectedContext = await buildSelectedDocumentContext()
       chatDocumentContext = selectedContext.content
       chatDocumentIds = selectedContext.ids
+      chatDocumentSources = selectedContext.sources || []
 
       if (selectedContext.content) {
         finalPrompt = `【系统指令】请优先且仅基于用户选中的文档回答。若文档正文不足以回答，请明确说明并再检索知识库补充，不得编造。\n\n【已选择文档】${selectedContext.titles.join('、')}\n\n【文档内容】\n${selectedContext.content}\n\n【用户问题】\n${q}`
@@ -858,12 +907,14 @@ const handleSend = async () => {
 
     const writeResult = applyFrontendWriteFromToolResults(agentResult.toolResults)
     const fileResult = parseToolResults(agentResult.toolResults)
+    const responseSources = mergeSources(chatDocumentSources, extractRagSources(agentResult.toolResults))
 
     chatHistory.value.push({
       role: 'ai',
       text: answerText,
       actionResult: writeResult || fileResult,
-      toolCalls: agentResult.toolResults || []
+      toolCalls: agentResult.toolResults || [],
+      sources: responseSources
     })
 
     if (frontendDeleteIntent && hasDeletedCurrentDocument(agentResult.toolResults)) {
@@ -1398,6 +1449,16 @@ const scrollToBottom = () => { nextTick(() => {
 
 <style scoped>
 /* ==================== 全局格式保护 ==================== */
+.message-sources { margin-top: 14px; display: flex; flex-direction: column; gap: 7px; }
+.sources-heading { font-size: 11px; font-weight: 700; color: #80758e; letter-spacing: .5px; }
+.source-card { width: 100%; display: flex; gap: 9px; padding: 9px 10px; border: 1px solid #e8e1eb; border-radius: 10px; background: #faf8fb; color: inherit; text-align: left; cursor: pointer; transition: .18s ease; }
+.source-card:hover { border-color: #aca0ce; background: #f4f0f7; transform: translateY(-1px); }
+.source-card > span { flex: 0 0 21px; height: 21px; display: grid; place-items: center; border-radius: 7px; background: #8775a1; color: #fff; font-size: 10px; }
+.source-card > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.source-card strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: #584f61; }
+.source-card small { font-size: 10px; color: #94899d; }
+.source-card p { margin: 3px 0 0; font-size: 11px; line-height: 1.55; color: #746b7b; }
+.message-sources.compact .source-card { padding: 7px 8px; }
 .preserve-format {
   white-space: pre-wrap !important;
   word-break: break-word;

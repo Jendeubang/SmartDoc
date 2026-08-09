@@ -89,7 +89,9 @@ export const aiApi = {
     // 获取分段策略列表
     getSegmentStrategies: () => request.get('/ai/rag/segment/strategies'),
     // 带有分段策略的文档索引
-    indexWithSegment: (documentId, content, strategy) => request.post(`/ai/rag/index/segment?documentId=${documentId}&strategy=${strategy}`, content, { headers: { 'Content-Type': 'text/plain' } }),
+    indexWithSegment: (documentId, content, strategy) => request.post(`/ai/agent/knowledge/index/segment?documentId=${encodeURIComponent(documentId)}&strategy=${encodeURIComponent(strategy || 'AUTO')}`, content, { headers: { 'Content-Type': 'text/plain' } }),
+    getKnowledgeJobs: () => request.get('/ai/agent/knowledge/jobs'),
+    retryKnowledgeJob: (jobId, content) => request.post(`/ai/agent/knowledge/jobs/${jobId}/retry`, content, { headers: { 'Content-Type': 'text/plain' } }),
     // 获取已分段的列表
     getDocumentSegments: (documentId) => request.get(`/ai/rag/document/${documentId}/segments`),
     getIndexedDocuments: () => request.get('/ai/rag/documents'),

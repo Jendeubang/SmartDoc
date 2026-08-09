@@ -7,6 +7,7 @@ package com.javaee.aiservice.agent;
  * 任务状态通过 Redis 持久化，支持系统重启后恢复。
  */
 
+import com.javaee.aiservice.rag.DocumentSegmenter;
 import com.javaee.aiservice.rag.KnowledgeBase;
 import com.javaee.aiservice.rag.VectorStore;
 import com.javaee.aiservice.agent.execution.event.AgentProgressBroadcaster;
@@ -185,7 +186,13 @@ public class KnowledgeIndexAgent {
                     log.warn("清理旧文档失败，继续重新索引: {}", removalError.getMessage());
                 }
             }
-            knowledgeBase.addDocument(job.getDocumentId(), content, enriched);
+            Object strategyValue = enriched.remove("segmentStrategy");
+            if (strategyValue == null) {
+                knowledgeBase.addDocument(job.getDocumentId(), content, enriched);
+            } else {
+                knowledgeBase.addDocument(job.getDocumentId(), content, enriched,
+                        DocumentSegmenter.StrategyType.valueOf(strategyValue.toString()));
+            }
             job.setProgress(85);
             saveAndPublish(job, "knowledge_progress", "完成索引写入");
 
