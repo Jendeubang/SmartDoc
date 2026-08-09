@@ -200,6 +200,23 @@ public class DocumentController {
         return Result.success(category);
     }
 
+    @DeleteMapping("/categories")
+    @Operation(summary = "按名称删除分类板块", description = "兼容历史文档分类；删除后对应文档自动归为未分类")
+    public Result<Void> deleteCategoryByName(@RequestParam String name) {
+        Long userId = requestUserContext.getRequiredUserId();
+        String categoryName = name == null ? "" : name.trim();
+        if (categoryName.isBlank()) {
+            throw new BusinessException("分类名称不能为空");
+        }
+        documentMapper.update(null, new LambdaUpdateWrapper<Document>()
+                .eq(Document::getUserId, userId)
+                .eq(Document::getCategory, categoryName)
+                .set(Document::getCategory, null));
+        documentCategoryMapper.delete(new LambdaQueryWrapper<DocumentCategory>()
+                .eq(DocumentCategory::getUserId, userId)
+                .eq(DocumentCategory::getName, categoryName));
+        return Result.success();
+    }
     @DeleteMapping("/categories/{id}")
     @Operation(summary = "删除分类板块", description = "删除时会将该板块内文档自动设为未分类，文档本身不会丢失")
     public Result<Void> deleteCategory(@PathVariable String id) {

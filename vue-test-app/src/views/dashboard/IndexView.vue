@@ -341,11 +341,11 @@
   </el-form>
   <div class="category-manager-list">
     <p class="category-delete-note">删除板块不会删除文档；板块内的文档会自动归入“未分类”。</p>
-    <div v-for="board in persistedCategoryBoards" :key="board.id" class="category-manager-item">
+    <div v-for="board in manageableCategoryBoards" :key="board.id" class="category-manager-item">
       <div class="category-manager-name"><i class="category-dot" :style="{ backgroundColor: board.color }"></i><span>{{ board.name }}</span><small>{{ board.count ? `${board.count} 篇文档将归入未分类` : '空板块' }}</small></div>
       <el-button size="small" type="danger" plain @click="removeCategory(board)">删除板块</el-button>
     </div>
-    <el-empty v-if="!persistedCategoryBoards.length" description="还没有自定义板块" :image-size="64" />
+    <el-empty v-if="!manageableCategoryBoards.length" description="还没有可管理的分类板块" :image-size="64" />
   </div>
 </el-dialog><el-dialog v-model="pptDialogVisible" title="🎨 HTML PPT 生成器" width="600px" destroy-on-close>
       <el-form :model="pptForm" label-position="top">
@@ -580,6 +580,7 @@ const categoryBoards = computed(() => {
   return boards
 })
 const persistedCategoryBoards = computed(() => categoryBoards.value.filter(board => board.persisted))
+const manageableCategoryBoards = computed(() => categoryBoards.value.filter(board => board.value !== UNCATEGORIZED_CATEGORY))
 const selectCategory = async (value, event) => {
   event?.preventDefault()
   event?.currentTarget?.blur()
@@ -733,8 +734,8 @@ const removeCategory = async board => {
       ? `“${board.name}”中有 ${board.count} 篇文档。删除后，这些文档会自动变为“未分类”，但仍保留在全部文档中。`
       : `确定删除“${board.name}”板块吗？`
     await ElMessageBox.confirm(description, '删除分类板块', { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' })
-    await docApi.deleteCategory(board.id)
-    categories.value = categories.value.filter(category => category.id !== board.id)
+    await docApi.deleteCategoryByName(board.name)
+    categories.value = categories.value.filter(category => category.name !== board.name)
     if (categoryFilter.value === board.value) categoryFilter.value = ''
     await fetchFiles()
     ElMessage.success(board.count ? '分类已删除，原文档已归为未分类' : '分类板块已删除')
