@@ -211,17 +211,7 @@
             </div>
 
             <el-empty v-else description="暂无文档，点击上方「上传文档」按钮上传" />
-          </div>
-
-          <div class="workbench-category-section" v-if="!showDocLibrary">
-  <div class="workbench-category-heading"><div><span class="workbench-category-title">文档分类</span><span class="workbench-category-subtitle">按板块快速查看和管理文档</span></div><el-button text type="primary" @click="categoryDialogVisible = true">管理分类</el-button></div>
-  <div class="category-boards workbench-category-boards">
-    <button class="category-board category-board-all" :class="{ active: !categoryFilter }" @click="categoryFilter = ''"><span>全部文档</span><strong>{{ docList.length }}</strong></button>
-    <button v-for="board in categoryBoards" :key="board.id" class="category-board" :class="{ active: categoryFilter === board.name }" @click="categoryFilter = board.name"><i class="category-dot" :style="{ backgroundColor: board.color }"></i><span>{{ board.name }}</span><strong>{{ board.count }}</strong></button>
-    <button class="category-board category-board-create" @click="categoryDialogVisible = true"><el-icon><Plus /></el-icon> 新建板块</button>
-  </div>
-</div>
-<!-- 最近文档列表（工作台视图） -->
+          </div><!-- 最近文档列表（工作台视图） -->
           <div class="list-section" v-if="!showDocLibrary">
             <div class="section-header">
               <span class="section-title">我的云端文档 <span class="count">({{ docList.length }})</span></span>
@@ -240,6 +230,16 @@
                 />
               </div>
             </div>
+            <div class="workbench-category-section" v-if="!showDocLibrary">
+  <div class="workbench-category-heading"><div><span class="workbench-category-title">文档分类</span><span class="workbench-category-subtitle">按板块快速查看和管理文档</span></div><el-button text type="primary" @click="categoryDialogVisible = true">管理分类</el-button></div>
+  <div class="category-boards workbench-category-boards">
+    <button class="category-board category-board-all" :class="{ active: !categoryFilter }" @click="categoryFilter = ''"><span>全部文档</span><strong>{{ docList.length }}</strong></button>
+    <button v-for="board in categoryBoards" :key="board.id" class="category-board" :class="{ active: categoryFilter === board.name }" @click="categoryFilter = board.name"><i class="category-dot" :style="{ backgroundColor: board.color }"></i><span>{{ board.name }}</span><strong>{{ board.count }}</strong></button>
+    <button class="category-board category-board-create" @click="categoryDialogVisible = true"><el-icon><Plus /></el-icon> 新建板块</button>
+  </div>
+</div>
+
+
 
             <!-- 卡片网格布局 -->
             <div class="card-grid" v-if="filteredList.length > 0">
