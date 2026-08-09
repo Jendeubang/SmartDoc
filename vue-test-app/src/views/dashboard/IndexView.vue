@@ -340,7 +340,11 @@
     <el-button type="primary" :loading="categorySaving" @click="createCategory">创建板块</el-button>
   </el-form>
   <div class="category-manager-list">
-    <div v-for="board in persistedCategoryBoards" :key="board.id" class="category-manager-item"><div class="category-manager-name"><i class="category-dot" :style="{ backgroundColor: board.color }"></i><span>{{ board.name }}</span><small>{{ board.count ? `删除后 ${board.count} 篇将变为未分类` : '' }}</small></div><el-button text type="danger" @click="removeCategory(board)">删除</el-button></div>
+    <p class="category-delete-note">删除板块不会删除文档；板块内的文档会自动归入“未分类”。</p>
+    <div v-for="board in persistedCategoryBoards" :key="board.id" class="category-manager-item">
+      <div class="category-manager-name"><i class="category-dot" :style="{ backgroundColor: board.color }"></i><span>{{ board.name }}</span><small>{{ board.count ? `${board.count} 篇文档将归入未分类` : '空板块' }}</small></div>
+      <el-button size="small" type="danger" plain @click="removeCategory(board)">删除板块</el-button>
+    </div>
     <el-empty v-if="!persistedCategoryBoards.length" description="还没有自定义板块" :image-size="64" />
   </div>
 </el-dialog><el-dialog v-model="pptDialogVisible" title="🎨 HTML PPT 生成器" width="600px" destroy-on-close>
@@ -1098,6 +1102,7 @@ const goToAIOps = () => {
 .category-select-row { display: flex; align-items: center; gap: 8px; width: 100%; }
 .category-dialog-tip { margin: -4px 0 18px; color: #7d7488; font-size: 13px; line-height: 1.65; }
 .category-manager-list { margin-top: 22px; border-top: 1px solid #eee9f0; padding-top: 12px; max-height: 260px; overflow: auto; }
+.category-delete-note { margin: 2px 0 10px; color: #9b7280; font-size: 12px; line-height: 1.55; }
 .category-manager-item { display: flex; align-items: center; justify-content: space-between; min-height: 42px; padding: 4px 2px; border-bottom: 1px solid #f5f1f6; }
 .category-manager-name { display: flex; align-items: center; gap: 9px; color: #51495d; }
 .category-manager-name small { color: #aaa1b0; margin-left: 2px; }
