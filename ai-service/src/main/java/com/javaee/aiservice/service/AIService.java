@@ -16,7 +16,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -27,6 +31,7 @@ import java.util.stream.Collectors;
 public class AIService {
 
     private static final Logger log = LoggerFactory.getLogger(AIService.class);
+    private static final Pattern JSON_KEYWORD_PATTERN = Pattern.compile("\\\"(?:word|keyword)\\\"\\s*:\\s*\\\"((?:\\\\.|[^\\\"\\\\])*)\\\"", Pattern.CASE_INSENSITIVE);
 
     @Autowired
     private ChatService chatService;
@@ -138,11 +143,7 @@ public class AIService {
             model
         );
 
-        List<KeywordVO> keywords = Arrays.stream(keywordsStr.split(","))
-            .map(String::trim)
-            .filter(s -> !s.isEmpty())
-            .map(word -> new KeywordVO(word, 1.0, "keyword"))
-            .collect(Collectors.toList());
+        List<KeywordVO> keywords = parseKeywordResponse(keywordsStr, dto.getCount());
 
         KeywordExtractVO vo = new KeywordExtractVO();
         vo.setKeywords(keywords);
@@ -152,6 +153,38 @@ public class AIService {
         return vo;
     }
 
+    private List<KeywordVO> parseKeywordResponse(String rawResponse, int requestedCount) {
+        Set<String> words = new LinkedHashSet<>();
+        String raw = rawResponse == null ? "" : rawResponse.trim();
+
+        Matcher jsonMatcher = JSON_KEYWORD_PATTERN.matcher(raw);
+        while (jsonMatcher.find()) {
+            String word = jsonMatcher.group(1)
+                    .replace("\\\"", "\"")
+                    .replace("\\\\", "\\")
+                    .trim();
+            if (!word.isEmpty()) {
+                words.add(word);
+            }
+        }
+
+        if (words.isEmpty()) {
+            String plainText = raw.replaceAll("(?s)```(?:json)?", "");
+            Arrays.stream(plainText.split("[,，、;；\\r\\n]+"))
+                    .map(token -> token.replaceFirst("^\\s*(?:[-*•]|\\d+[.、)、)])\\s*", ""))
+                    .map(token -> token.replaceAll("^[\\[\\]{}`'\\\"]+|[\\[\\]{}`'\\\"]+$", ""))
+                    .map(String::trim)
+                    .filter(token -> !token.isEmpty())
+                    .filter(token -> !token.contains("\"word\"") && !token.contains("\"keyword\""))
+                    .forEach(words::add);
+        }
+
+        int limit = Math.max(1, requestedCount);
+        return words.stream()
+                .limit(limit)
+                .map(word -> new KeywordVO(word, 1.0, "keyword"))
+                .collect(Collectors.toList());
+    }
     /**
      * 文档纠错（使用默认模型）
      * @param dto 请求参数

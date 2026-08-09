@@ -261,6 +261,30 @@ function nextQuizQuestion() {
   if (quizIndex.value + 1 >= quizQuestions.value.length) { ElMessage.success(`练习完成，答对 ${quizScore.value} / ${quizQuestions.value.length} 题`); quizIndex.value = 0; quizAnswer.value = ''; quizFeedback.value = null; return }
   quizIndex.value += 1; quizAnswer.value = ''; quizFeedback.value = null
 }
+function keywordText(value) {
+  if (value && typeof value === 'object') {
+    return String(value.word ?? value.keyword ?? value.name ?? '').trim()
+  }
+  const raw = String(value ?? '').trim()
+  const jsonMatch = raw.match(/"(?:word|keyword)"\s*:\s*"([^"]+)"/i)
+  return (jsonMatch?.[1] || raw)
+    .replace(/^\s*(?:[-*•]|\d+[.、)、])\s*/, '')
+    .replace(/^[\[\]{}`'"]+|[\[\]{}`'"]+$/g, '')
+    .trim()
+}
+
+function keywordList(data) {
+  const values = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.keywords)
+      ? data.keywords
+      : Array.isArray(data?.items)
+        ? data.items
+        : typeof data === 'string'
+          ? data.split(/[\r\n,，、;；]+/)
+          : [data]
+  return [...new Set(values.map(keywordText).filter(Boolean))]
+}
 function responseData(res) { return res?.data ?? res ?? {} }
 function currentUserId() { return localStorage.getItem('userId') }
 function documentTitle(doc) { return doc?.title || doc?.name || '未命名文档' }
@@ -419,7 +443,10 @@ async function runFileJob(toolType) {
     } else if (tool.id === 'summary') {
       const data = responseData(await aiApi.summarizeText(workingContent.value, 300)); result.value = typeof data === 'string' ? data : (data.summary || data.content || JSON.stringify(data)); resultCanApply.value = true
     } else if (tool.id === 'keywords') {
-      const data = responseData(await aiApi.extractKeywords(workingContent.value, 8)); const words = Array.isArray(data) ? data : (data.keywords || data.items || []); result.value = `关键词\n\n${Array.isArray(words) ? words.map((word, index) => `${index + 1}. ${typeof word === 'string' ? word : word.keyword || JSON.stringify(word)}`).join('\n') : JSON.stringify(words)}`
+      const data = responseData(await aiApi.extractKeywords(workingContent.value, 8))
+      const words = keywordList(data)
+      if (!words.length) throw new Error('未能提取有效关键词，请重试')
+      result.value = `关键词\n\n${words.map((word, index) => `${index + 1}. ${word}`).join('\n')}`
     } else if (tool.id === 'proofread') {
       const prompt = `请对以下文本进行中文校对。只输出校对后的完整文本，不要解释，不要改变原意：\n\n${workingContent.value}`
       const data = responseData(await aiApi.executeAgent({ task: prompt, context: { source: 'document-toolbox', action: 'proofread' } })); result.value = data.finalAnswer || data.answer || data.content || (typeof data === 'string' ? data : JSON.stringify(data)); resultCanApply.value = true
