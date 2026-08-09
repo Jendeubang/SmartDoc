@@ -461,7 +461,7 @@ import { isAdmin } from '../../utils/jwt'
 const router = useRouter()
 const loading = ref(false)
 const showDocLibrary = ref(false)
-const currentUserName = ref('用户')
+const currentUserName = ref('User')
 const docList = ref([])
 const libraryScope = ref('all')
 const UNCATEGORIZED_CATEGORY = '__uncategorized__'
@@ -521,10 +521,10 @@ const fetchUser = async () => {
   try {
     const res = await userApi.getUserInfo(uid)
     const user = res.data || {}
-    currentUserName.value = user.nickname || '用户'
+    currentUserName.value = user.nickname || user.username || 'User'
     profileForm.value = { nickname: user.nickname || user.username || '', signature: user.signature || '', avatarFileId: user.avatarFileId || '' }
     await loadAvatar(user.avatarFileId)
-  } catch (e) { currentUserName.value = '用户' }
+  } catch (e) { currentUserName.value = 'User' }
 }
 const resetProfileForm = () => {
   profileSaving.value = false
