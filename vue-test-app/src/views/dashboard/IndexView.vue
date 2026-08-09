@@ -179,6 +179,7 @@
                     <Document v-else />
                   </el-icon>
                   <span class="doc-category-badge">{{ doc.category || '未分类' }}</span>
+                  <el-icon v-if="doc.favorite" class="doc-favorite-badge" aria-label="已收藏"><StarFilled /></el-icon>
                   <span class="file-kind">{{ doc.extension || 'DOC' }}</span>
                 </div>
                 <div class="card-info">
@@ -205,7 +206,6 @@
                   </div>
                   <div class="doc-meta">
                     <span>{{ doc.time }}</span>
-                    <span class="doc-tags"><el-icon v-if="doc.favorite"><StarFilled /></el-icon><em>{{ doc.category }}</em></span>
                     <el-tag size="small" :type="statusType(doc)" round effect="light">{{ statusLabel(doc) }}</el-tag>
                   </div>
                 </div>
@@ -256,6 +256,7 @@
                     <Document v-else />
                   </el-icon>
                   <span class="doc-category-badge">{{ doc.category || '未分类' }}</span>
+                  <el-icon v-if="doc.favorite" class="doc-favorite-badge" aria-label="已收藏"><StarFilled /></el-icon>
                   <span class="file-kind">{{ doc.extension || 'DOC' }}</span>
                 </div>
 
@@ -284,7 +285,6 @@
                   </div>
                   <div class="doc-meta">
                     <span>{{ doc.time }}</span>
-                    <span class="doc-tags"><el-icon v-if="doc.favorite"><StarFilled /></el-icon><em>{{ doc.category }}</em></span>
                     <el-tag size="small" :type="statusType(doc)" round effect="light">{{ statusLabel(doc) }}</el-tag>
                   </div>
                 </div>
@@ -332,6 +332,28 @@
       </template>
     </el-dialog>
     <!-- PPT 生成器弹窗 -->
+    <el-dialog v-model="categoryMoveDialogVisible" title="移动分类" width="460px" @closed="resetCategoryMoveForm">
+      <p class="category-dialog-tip">选择一个已有板块；也可以在下方新建分类并立即将当前文档归入其中。</p>
+      <el-form :model="categoryMoveForm" label-position="top" @submit.prevent>
+        <el-form-item label="已有文档分类">
+          <el-select v-model="categoryMoveForm.category" clearable placeholder="选择分类或保留为未分类" style="width: 100%">
+            <el-option label="未分类" value="" />
+            <el-option v-for="category in categoryOptions" :key="category" :label="category" :value="category" />
+          </el-select>
+        </el-form-item>
+        <el-divider>或新建分类</el-divider>
+        <el-form-item label="新分类名称">
+          <el-input v-model="categoryMoveForm.newName" maxlength="50" show-word-limit placeholder="例如：项目资料、课程学习" />
+        </el-form-item>
+        <el-form-item label="标识颜色">
+          <el-color-picker v-model="categoryMoveForm.color" show-alpha="false" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="categoryMoveDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="categoryMoving" @click="moveDocumentCategory">确认移动</el-button>
+      </template>
+    </el-dialog>
     <el-dialog v-model="categoryDialogVisible" title="分类板块" width="500px" @closed="resetCategoryForm">
   <p class="category-dialog-tip">创建板块后，上传、新建和整理文档时都能直接选择。板块内仍有文档时不能删除，避免误分类。</p>
   <el-form :model="categoryForm" label-position="top" @submit.prevent>
@@ -429,6 +451,10 @@ const uploadCategory = ref('')
 const categoryDialogVisible = ref(false)
 const categorySaving = ref(false)
 const categoryForm = ref({ name: '', color: '#ACA0CE' })
+const categoryMoveDialogVisible = ref(false)
+const categoryMoving = ref(false)
+const categoryMoveTarget = ref(null)
+const categoryMoveForm = ref({ category: '', newName: '', color: '#ACA0CE' })
 const workbenchListRef = ref(null)
 const workbenchListMinHeight = ref('')
 const thumbnailUrls = new Set()
@@ -482,6 +508,8 @@ const mapDocument = item => ({
   category: item.category && item.category !== 'default' ? item.category : '',
   tags: Array.isArray(item.tags) ? item.tags : [],
   favorite: Array.isArray(item.tags) && item.tags.includes('_favorite'),
+  favoriteAt: Number(String((Array.isArray(item.tags) ? item.tags : []).find(tag => /^_favorite_at:\d+/.test(String(tag))) || '').split(':')[1]) || Date.parse(item.updateTime || item.createTime || '') || 0,
+  updatedAt: Date.parse(item.updateTime || item.createTime || '') || 0,
   extension: extensionOf(item.title),
   kind: kindOf(item.title),
   thumbnail: '',
@@ -604,12 +632,18 @@ const selectCategory = async (value, event) => {
     if (document.scrollingElement) document.scrollingElement.scrollTop = documentScrollTop
   })
 }
-const filteredList = computed(() => docList.value.filter(doc => {
-  if (libraryScope.value === 'favorite' && !doc.favorite) return false
-  if (categoryFilter.value === UNCATEGORIZED_CATEGORY && doc.category) return false
-  if (categoryFilter.value && categoryFilter.value !== UNCATEGORIZED_CATEGORY && doc.category !== categoryFilter.value) return false
-  return doc.name.toLowerCase().includes(search.value.toLowerCase())
-}))
+const filteredList = computed(() => docList.value
+  .filter(doc => {
+    if (libraryScope.value === 'favorite' && !doc.favorite) return false
+    if (categoryFilter.value === UNCATEGORIZED_CATEGORY && doc.category) return false
+    if (categoryFilter.value && categoryFilter.value !== UNCATEGORIZED_CATEGORY && doc.category !== categoryFilter.value) return false
+    return doc.name.toLowerCase().includes(search.value.toLowerCase())
+  })
+  .sort((left, right) => {
+    if (left.favorite !== right.favorite) return left.favorite ? -1 : 1
+    if (left.favorite && right.favorite) return right.favoriteAt - left.favoriteAt
+    return right.updatedAt - left.updatedAt
+  }))
 const statusLabel = doc => doc.parseStatus === 'parsing' ? '解析中' : doc.parseStatus === 'failed' ? '解析失败' : doc.analyzed ? '已处理' : '已解析'
 const statusType = doc => doc.parseStatus === 'parsing' ? 'warning' : doc.parseStatus === 'failed' ? 'danger' : doc.analyzed ? 'success' : 'info'
 
@@ -701,12 +735,46 @@ const resetCategoryForm = () => {
   categoryForm.value = { name: '', color: '#ACA0CE' }
 }
 
-const ensureCategoryExists = async name => {
+const ensureCategoryExists = async (name, color = '#ACA0CE') => {
   const normalizedName = String(name || '').trim()
   if (!normalizedName || categories.value.some(category => category.name === normalizedName)) return
-  const res = await docApi.createCategory({ name: normalizedName, color: '#ACA0CE' })
+  const res = await docApi.createCategory({ name: normalizedName, color })
   if (res.data) categories.value.push(res.data)
   else await fetchCategories()
+}
+
+const resetCategoryMoveForm = () => {
+  categoryMoving.value = false
+  categoryMoveTarget.value = null
+  categoryMoveForm.value = { category: '', newName: '', color: '#ACA0CE' }
+}
+
+const openCategoryMoveDialog = doc => {
+  categoryMoveTarget.value = doc
+  categoryMoveForm.value = { category: doc.category || '', newName: '', color: '#ACA0CE' }
+  categoryMoveDialogVisible.value = true
+}
+
+const moveDocumentCategory = async () => {
+  const doc = categoryMoveTarget.value
+  if (!doc) return
+  const newName = categoryMoveForm.value.newName.trim()
+  const targetCategory = newName || categoryMoveForm.value.category.trim()
+  categoryMoving.value = true
+  try {
+    if (newName) await ensureCategoryExists(newName, categoryMoveForm.value.color || '#ACA0CE')
+    await docApi.updateDoc(doc.id, {
+      category: targetCategory || '',
+      changeLog: targetCategory ? "调整文档分类" : "移出文档分类"
+    })
+    doc.category = targetCategory
+    categoryMoveDialogVisible.value = false
+    ElMessage.success(targetCategory ? "已移动到“" + targetCategory + "”" : "已归入未分类")
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.message || "移动分类失败")
+  } finally {
+    categoryMoving.value = false
+  }
 }
 
 const createCategory = async () => {
@@ -824,11 +892,18 @@ const downloadBlob = (blob, fileName) => {
 const handleCardCommand = async (cmd, doc) => {
   if (cmd === 'favorite') {
     const tags = new Set(doc.tags || [])
-    doc.favorite ? tags.delete('_favorite') : tags.add('_favorite')
-    await docApi.updateDoc(doc.id, { tags: [...tags], changeLog: doc.favorite ? '取消收藏' : '收藏文档' })
-    doc.tags = [...tags]
+    ;[...tags].filter(tag => String(tag).startsWith("_favorite_at:")).forEach(tag => tags.delete(tag))
+    if (doc.favorite) tags.delete("_favorite")
+    else {
+      tags.add("_favorite")
+      tags.add("_favorite_at:" + Date.now())
+    }
+    const nextTags = [...tags]
+    await docApi.updateDoc(doc.id, { tags: nextTags, changeLog: doc.favorite ? "取消收藏" : "收藏文档" })
+    doc.tags = nextTags
     doc.favorite = !doc.favorite
-    ElMessage.success(doc.favorite ? '已收藏' : '已取消收藏')
+    doc.favoriteAt = doc.favorite ? Date.now() : 0
+    ElMessage.success(doc.favorite ? "已收藏，已按收藏时间重新排序" : "已取消收藏")
     return
   }
   if (cmd === 'rename') {
@@ -841,12 +916,7 @@ const handleCardCommand = async (cmd, doc) => {
     return
   }
   if (cmd === 'category') {
-    try {
-      const { value } = await ElMessageBox.prompt('输入分类名称，例如：学习资料、项目文档', '移动分类', { inputValue: doc.category === '默认分类' ? '' : doc.category, inputPattern: /\S+/, inputErrorMessage: '分类不能为空' })
-      await ensureCategoryExists(value.trim())
-       await docApi.updateDoc(doc.id, { category: value.trim(), changeLog: '调整文档分类' })
-      doc.category = value.trim(); ElMessage.success('分类已更新')
-    } catch { /* 用户取消 */ }
+    openCategoryMoveDialog(doc)
     return
   }
   if (cmd === 'delete') {
@@ -1069,8 +1139,7 @@ const goToAIOps = () => {
 .doc-card:hover .document-thumbnail { transform: scale(1.04); }
 .file-kind { position: absolute; right: 10px; bottom: 9px; min-width: 34px; padding: 3px 7px; border-radius: 999px; background: rgba(50, 42, 59, .48); color: #fff; text-align: center; font-size: 10px; font-weight: 700; backdrop-filter: blur(6px); }
 .doc-category-badge { position: absolute; left: 10px; top: 9px; max-width: calc(100% - 78px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 4px 8px; border-radius: 999px; background: rgba(255, 255, 255, .92); color: #746589; font-size: 10px; font-weight: 700; box-shadow: 0 2px 7px rgba(48, 39, 57, .14); }
-.doc-tags { min-width: 0; display: inline-flex; align-items: center; gap: 3px; color: #8b7da0; }
-.doc-tags em { max-width: 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-style: normal; }
+.doc-favorite-badge { position: absolute; right: 10px; top: 9px; width: 25px; height: 25px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: rgba(255, 255, 255, .94); color: #b18d43; font-size: 14px; box-shadow: 0 2px 8px rgba(78, 62, 96, .18); }
 .card-info { padding: 12px 16px; }
 .info-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .doc-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #1f2329; cursor: pointer; flex: 1; }
