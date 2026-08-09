@@ -11,6 +11,7 @@ const routes = [
     { path: '/register', component: () => import('../views/auth/RegisterView.vue') },
     { path: '/morandi-preview', component: () => import('../views/preview/MorandiPreview.vue'), meta: { public: true } },
     { path: '/dashboard', component: () => import('../views/dashboard/IndexView.vue') },
+    { path: '/profile', component: () => import('../views/profile/ProfileView.vue') },
     { path: '/ppt-runtime', name: 'pptRuntime', component: () => import('../views/dashboard/PptRuntime.vue')},
     { path: '/aiops', component: () => import('../views/aiops/AIOpsView.vue') },
     { path: '/toolbox', component: () => import('../views/toolbox/DocumentToolbox.vue') },

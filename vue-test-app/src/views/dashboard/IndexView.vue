@@ -532,7 +532,7 @@ const resetProfileForm = () => {
   if (profileAvatarPreview.value) URL.revokeObjectURL(profileAvatarPreview.value)
   profileAvatarPreview.value = ''
 }
-const openProfile = () => { profileDialogVisible.value = true }
+const openProfile = () => { router.push('/profile') }
 const handleAvatarSelected = event => {
   const file = event.target.files?.[0]
   event.target.value = ''

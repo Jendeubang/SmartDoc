@@ -4,8 +4,8 @@
       <div class="logo">SmartDoc 文档智能处理平台</div>
       <h2 class="title">欢迎回来</h2>
       <el-form :model="form" label-position="top">
-        <el-form-item label="用户名">
-          <el-input v-model="form.username" placeholder="请输入用户名" size="large" prefix-icon="User" />
+        <el-form-item label="昵称">
+          <el-input v-model="form.username" placeholder="请输入注册时设置的昵称" size="large" prefix-icon="User" />
         </el-form-item>
         <el-form-item label="密码">
           <el-input v-model="form.password" type="password" show-password placeholder="请输入密码" size="large" prefix-icon="Lock" @keyup.enter="handleLogin" />

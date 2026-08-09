@@ -6,8 +6,8 @@
 
       <el-form :model="form" :rules="rules" ref="formRef" label-position="top">
 
-        <el-form-item label="用户名" prop="username">
-          <el-input v-model="form.username" placeholder="请输入用户名" size="large" />
+        <el-form-item label="昵称" prop="username">
+          <el-input v-model="form.username" placeholder="请输入登录昵称" size="large" />
         </el-form-item>
 
         <el-form-item label="邮箱" prop="email">
@@ -104,7 +104,7 @@ const isPasswordValid = computed(() => {
 })
 
 const rules = {
-  username: [{ required: true, message: '用户名不能为空', trigger: 'blur' }],
+  username: [{ required: true, message: '昵称不能为空', trigger: 'blur' }],
   email: [{ required: true, message: '请输入邮箱或手机号', trigger: 'blur' }]
   // 密码校验逻辑现在通过 strength 面板和 isPasswordValid 按钮禁用态来控制，更直观
 }

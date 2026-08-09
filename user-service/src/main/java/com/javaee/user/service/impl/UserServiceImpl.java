@@ -135,19 +135,15 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (user == null) {
             throw new BusinessException(ErrorCodeEnum.USER_NOT_FOUND);
         }
-        String nickname = dto == null || dto.getNickname() == null ? null : dto.getNickname().trim();
+        // The registration username is the fixed login nickname. Profile updates cannot modify it.
         String signature = dto == null || dto.getSignature() == null ? null : dto.getSignature().trim();
         String avatarFileId = dto == null || dto.getAvatarFileId() == null ? null : dto.getAvatarFileId().trim();
-        if (nickname != null && nickname.length() > 50) {
-            throw new BusinessException("昵称不能超过 50 个字符");
-        }
         if (signature != null && signature.length() > 160) {
-            throw new BusinessException("个性签名不能超过 160 个字符");
+            throw new BusinessException("Signature cannot exceed 160 characters");
         }
         if (avatarFileId != null && avatarFileId.length() > 128) {
-            throw new BusinessException("头像文件标识不合法");
+            throw new BusinessException("Invalid avatar file id");
         }
-        user.setNickname(nickname == null || nickname.isBlank() ? null : nickname);
         user.setSignature(signature == null || signature.isBlank() ? null : signature);
         user.setAvatarFileId(avatarFileId == null || avatarFileId.isBlank() ? null : avatarFileId);
         user.setUpdateTime(LocalDateTime.now());
