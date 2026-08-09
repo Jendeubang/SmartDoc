@@ -20,6 +20,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -65,7 +66,7 @@ class DocumentServiceImplTest {
         ArgumentCaptor<Document> inserted = ArgumentCaptor.forClass(Document.class);
         verify(documentMapper).insert(inserted.capture());
         assertThat(inserted.getValue().getBucketName()).isEqualTo("user-7");
-        verify(documentMapper).updateById(any(Document.class));
+        verify(documentMapper, times(2)).updateById(any(Document.class));
         verify(documentAccessService).grantOwnerAccess("doc-1", "user-7", 7L);
         assertThat(vo.getBucketName()).isEqualTo("user-7");
         assertThat(vo.getObjectName()).isEqualTo("document-content/doc-1.txt");
@@ -110,7 +111,7 @@ class DocumentServiceImplTest {
         DocumentVO vo = documentService.update("doc-4", dto, 2L);
 
         verify(documentAccessService).assertCanWrite(document, 2L);
-        verify(documentContentService).updateContent("doc-4", "owner-bucket", "");
+        verify(documentContentService).saveContentByKey("document-content/doc-4.txt", "owner-bucket", "");
         assertThat(document.getTitle()).isEqualTo("doc");
         assertThat(vo.getContent()).isEqualTo("");
     }

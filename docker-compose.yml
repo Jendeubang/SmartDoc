@@ -7,8 +7,6 @@
 #   4. 停止全部：docker compose down -v
 # ============================================================
 
-version: "3.8"
-
 services:
   # ──────────── 基础设施 ────────────
 
@@ -197,6 +195,8 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      redis:
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
       minio:
@@ -206,6 +206,8 @@ services:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/doc_ai?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
       SPRING_DATASOURCE_USERNAME: ${MYSQL_USERNAME}
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
+      # Redis
+      SPRING_DATA_REDIS_HOST: redis
       # RabbitMQ
       SPRING_RABBITMQ_HOST: rabbitmq
       SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USERNAME}
@@ -230,11 +232,23 @@ services:
     container_name: docai-gateway
     restart: always
     depends_on:
-      - user-service
-      - file-service
-      - ai-service
-      - document-service
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      file-service:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
+      document-service:
+        condition: service_healthy
     environment:
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USERNAME}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
       # 路由指向各服务容器名
       GATEWAY_ROUTE_USER_URI: http://user-service:8081
       GATEWAY_ROUTE_FILE_URI: http://file-service:8082

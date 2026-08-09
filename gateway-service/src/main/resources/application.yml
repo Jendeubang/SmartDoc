@@ -77,3 +77,14 @@ custom:
     redis-key-prefix: gateway:rate-limit
     default-rate: 100
     default-burst: 200
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true

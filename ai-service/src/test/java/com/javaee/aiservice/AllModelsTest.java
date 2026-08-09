@@ -4,6 +4,7 @@ import com.javaee.aiservice.agent.ChatService;
 import com.javaee.aiservice.factory.AIServiceFactory;
 import com.javaee.aiservice.model.ModelType;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.slf4j.Logger;
@@ -15,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 
 @SpringBootTest
+@EnabledIfEnvironmentVariable(named = "RUN_AI_INTEGRATION_TESTS", matches = "true")
 public class AllModelsTest {
 
     private static final Logger log = LoggerFactory.getLogger(AllModelsTest.class);

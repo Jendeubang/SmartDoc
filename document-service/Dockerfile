@@ -11,6 +11,7 @@ RUN apt-get update \
         tesseract-ocr-chi-sim \
         libreoffice-writer \
         fonts-noto-cjk \
+        curl \
     && rm -rf /var/lib/apt/lists/*
 
 ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata
@@ -18,4 +19,5 @@ ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata
 COPY target/document-service-1.0.0.jar /app/document-service.jar
 WORKDIR /app
 EXPOSE 8084
+HEALTHCHECK --interval=15s --timeout=5s --start-period=45s --retries=5 CMD curl -fsS http://localhost:8084/actuator/health || exit 1
 CMD ["java", "-jar", "document-service.jar"]

@@ -7,6 +7,20 @@ const aiTarget = process.env.VITE_AI_TARGET || 'http://localhost:8083'
 export default defineConfig({
   plugins: [vue()],
 
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined
+          if (id.includes('element-plus') || id.includes('@element-plus')) return 'element-plus'
+          if (id.includes('@stomp') || id.includes('sockjs')) return 'realtime'
+          if (id.includes('vue')) return 'vue-vendor'
+          return 'vendor'
+        }
+      }
+    }
+  },
+
   server: {
     host: '0.0.0.0',
     port: 5173,

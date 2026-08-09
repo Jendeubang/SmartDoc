@@ -67,7 +67,14 @@
         </dependency>
 
         <!-- 注意：网关不能引入spring-boot-starter-web，会冲突 -->
-    </dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+            <scope>runtime</scope>
+        </dependency>    </dependencies>
 
     <build>
         <plugins>
