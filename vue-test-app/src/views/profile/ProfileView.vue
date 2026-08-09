@@ -65,6 +65,16 @@ const currentUserId = computed(() => {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.USER_INFO) || '{}').id || '' } catch { return '' }
 })
 const profileForm = ref({ username: '', signature: '', avatarFileId: '' })
+const PROFILE_UPDATED_KEY = 'smartdoc_profile_updated_at'
+
+const notifyProfileUpdated = () => {
+  localStorage.setItem(PROFILE_UPDATED_KEY, String(Date.now()))
+  if (typeof BroadcastChannel !== 'undefined') {
+    const channel = new BroadcastChannel('smartdoc-profile-sync')
+    channel.postMessage({ type: 'profile-updated' })
+    channel.close()
+  }
+}
 
 const disposeBlobPreview = () => {
   if (blobPreviewUrl) {
@@ -152,6 +162,7 @@ const saveProfile = async () => {
     let cached = {}
     try { cached = JSON.parse(localStorage.getItem(STORAGE_KEYS.USER_INFO) || '{}') } catch { cached = {} }
     localStorage.setItem(STORAGE_KEYS.USER_INFO, JSON.stringify({ ...cached, ...updated }))
+    notifyProfileUpdated()
     profileForm.value.signature = updated.signature || profileForm.value.signature.trim()
     profileForm.value.avatarFileId = updated.avatarFileId || profileForm.value.avatarFileId
     ElMessage.success('个人信息已保存')

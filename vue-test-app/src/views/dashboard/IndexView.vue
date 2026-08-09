@@ -527,8 +527,12 @@ const fetchUser = async () => {
   } catch (e) { currentUserName.value = 'User' }
 }
 const handleUserProfileStorage = event => {
-  if (event.key === STORAGE_KEYS.USER_INFO) fetchUser()
+  if (event.key === STORAGE_KEYS.USER_INFO || event.key === 'smartdoc_profile_updated_at') fetchUser()
 }
+const handleProfileVisibility = () => {
+  if (document.visibilityState === 'visible') fetchUser()
+}
+let profileSyncChannel = null
 const resetProfileForm = () => {
   profileSaving.value = false
   avatarFile.value = null
@@ -631,7 +635,15 @@ const changeLibraryScope = async scope => {
   else if (scope === 'all' || scope === 'favorite') await fetchFiles()
 }
 
-onBeforeUnmount(() => { window.removeEventListener('storage', handleUserProfileStorage); releaseThumbnails(); releaseAvatarUrl(); if (profileAvatarPreview.value) URL.revokeObjectURL(profileAvatarPreview.value) })
+onBeforeUnmount(() => {
+  window.removeEventListener('storage', handleUserProfileStorage)
+  window.removeEventListener('focus', fetchUser)
+  document.removeEventListener('visibilitychange', handleProfileVisibility)
+  profileSyncChannel?.close()
+  releaseThumbnails()
+  releaseAvatarUrl()
+  if (profileAvatarPreview.value) URL.revokeObjectURL(profileAvatarPreview.value)
+})
 
 const fetchCategories = async () => {
   try {
@@ -665,7 +677,21 @@ const fetchModels = async () => {
   }
 }
 
-onMounted(() => { window.addEventListener('storage', handleUserProfileStorage); fetchUser(); fetchFiles(); fetchModels(); fetchCategories() })
+onMounted(() => {
+  window.addEventListener('storage', handleUserProfileStorage)
+  window.addEventListener('focus', fetchUser)
+  document.addEventListener('visibilitychange', handleProfileVisibility)
+  if (typeof BroadcastChannel !== 'undefined') {
+    profileSyncChannel = new BroadcastChannel('smartdoc-profile-sync')
+    profileSyncChannel.onmessage = event => {
+      if (event.data?.type === 'profile-updated') fetchUser()
+    }
+  }
+  fetchUser()
+  fetchFiles()
+  fetchModels()
+  fetchCategories()
+})
 
 const categoryOptions = computed(() => [...new Set([
   ...categories.value.map(category => category.name).filter(Boolean),
