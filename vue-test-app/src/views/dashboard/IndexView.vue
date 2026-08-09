@@ -79,7 +79,7 @@
                   <input type="file" ref="fileInputRef" style="display: none;" accept=".pdf,.doc,.docx,.txt,.md,.ppt,.pptx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp" @change="onFileSelected" />
                   <div class="upload-category-picker" @click.stop>
   <span>保存到</span>
-  <el-select v-model="uploadCategory" size="small" style="width: 160px"><el-option v-for="category in categoryOptions" :key="category" :label="category" :value="category" /></el-select>
+  <el-select v-model="uploadCategory" size="small" clearable placeholder="未分类" style="width: 160px"><el-option v-for="category in categoryOptions" :key="category" :label="category" :value="category" /></el-select>
   <el-button text type="primary" @click.stop="categoryDialogVisible = true">新建板块</el-button>
 </div>
 <div class="menu-item" @click="triggerUpload">
@@ -114,6 +114,7 @@
                   <el-radio-button label="trash">回收站</el-radio-button>
                 </el-radio-group>
                 <el-select v-if="libraryScope !== 'trash'" v-model="categoryFilter" size="small" clearable placeholder="全部分类" style="width: 120px">
+                  <el-option label="未分类" :value="UNCATEGORIZED_CATEGORY" />
                   <el-option v-for="category in categoryOptions" :key="category" :label="category" :value="category" />
                 </el-select>
                 <el-button v-if="libraryScope !== 'trash'" size="small" icon="FolderOpened" @click="categoryDialogVisible = true">分类板块</el-button>
@@ -135,7 +136,7 @@
             <!-- 文档统计卡片 -->
             <div v-if="libraryScope !== 'trash'" class="category-boards">
   <button class="category-board category-board-all" :class="{ active: !categoryFilter }" @click="categoryFilter = ''"><span>全部文档</span><strong>{{ docList.length }}</strong></button>
-  <button v-for="board in categoryBoards" :key="board.id" class="category-board" :class="{ active: categoryFilter === board.name }" @click="categoryFilter = board.name"><i class="category-dot" :style="{ backgroundColor: board.color }"></i><span>{{ board.name }}</span><strong>{{ board.count }}</strong></button>
+  <button v-for="board in categoryBoards" :key="board.id" class="category-board" :class="{ active: categoryFilter === board.value }" @click="categoryFilter = board.value"><i class="category-dot" :style="{ backgroundColor: board.color }"></i><span>{{ board.name }}</span><strong>{{ board.count }}</strong></button>
   <button class="category-board category-board-create" @click="categoryDialogVisible = true"><el-icon><Plus /></el-icon> 新建板块</button>
 </div><div class="stats-row">
               <div class="stat-card">
@@ -177,6 +178,7 @@
                     <Tickets v-else-if="doc.kind === 'pdf'" />
                     <Document v-else />
                   </el-icon>
+                  <span class="doc-category-badge">{{ doc.category || '未分类' }}</span>
                   <span class="file-kind">{{ doc.extension || 'DOC' }}</span>
                 </div>
                 <div class="card-info">
@@ -234,7 +236,7 @@
   <div class="workbench-category-heading"><div><span class="workbench-category-title">文档分类</span><span class="workbench-category-subtitle">按板块快速查看和管理文档</span></div><el-button text type="primary" @click="categoryDialogVisible = true">管理分类</el-button></div>
   <div class="category-boards workbench-category-boards">
     <button class="category-board category-board-all" :class="{ active: !categoryFilter }" @click="categoryFilter = ''"><span>全部文档</span><strong>{{ docList.length }}</strong></button>
-    <button v-for="board in categoryBoards" :key="board.id" class="category-board" :class="{ active: categoryFilter === board.name }" @click="categoryFilter = board.name"><i class="category-dot" :style="{ backgroundColor: board.color }"></i><span>{{ board.name }}</span><strong>{{ board.count }}</strong></button>
+    <button v-for="board in categoryBoards" :key="board.id" class="category-board" :class="{ active: categoryFilter === board.value }" @click="categoryFilter = board.value"><i class="category-dot" :style="{ backgroundColor: board.color }"></i><span>{{ board.name }}</span><strong>{{ board.count }}</strong></button>
     <button class="category-board category-board-create" @click="categoryDialogVisible = true"><el-icon><Plus /></el-icon> 新建板块</button>
   </div>
 </div>
@@ -253,6 +255,7 @@
                     <Tickets v-else-if="doc.kind === 'pdf'" />
                     <Document v-else />
                   </el-icon>
+                  <span class="doc-category-badge">{{ doc.category || '未分类' }}</span>
                   <span class="file-kind">{{ doc.extension || 'DOC' }}</span>
                 </div>
 
@@ -313,7 +316,7 @@
           <el-col :span="12">
             <el-form-item label="文档分类">
   <div class="category-select-row">
-    <el-select v-model="newDocForm.category" filterable style="flex: 1" placeholder="选择分类板块"><el-option v-for="category in categoryOptions" :key="category" :label="category" :value="category" /></el-select>
+    <el-select v-model="newDocForm.category" filterable clearable style="flex: 1" placeholder="未分类"><el-option v-for="category in categoryOptions" :key="category" :label="category" :value="category" /></el-select>
     <el-button text type="primary" @click="categoryDialogVisible = true">新建板块</el-button>
   </div>
 </el-form-item>
@@ -337,7 +340,7 @@
     <el-button type="primary" :loading="categorySaving" @click="createCategory">创建板块</el-button>
   </el-form>
   <div class="category-manager-list">
-    <div v-for="board in persistedCategoryBoards" :key="board.id" class="category-manager-item"><div class="category-manager-name"><i class="category-dot" :style="{ backgroundColor: board.color }"></i><span>{{ board.name }}</span><small>{{ board.count }} 篇文档</small></div><el-button text type="danger" :disabled="board.count > 0" @click="removeCategory(board)">删除</el-button></div>
+    <div v-for="board in persistedCategoryBoards" :key="board.id" class="category-manager-item"><div class="category-manager-name"><i class="category-dot" :style="{ backgroundColor: board.color }"></i><span>{{ board.name }}</span><small>{{ board.count ? `删除后 ${board.count} 篇将变为未分类` : '' }}</small></div><el-button text type="danger" @click="removeCategory(board)">删除</el-button></div>
     <el-empty v-if="!persistedCategoryBoards.length" description="还没有自定义板块" :image-size="64" />
   </div>
 </el-dialog><el-dialog v-model="pptDialogVisible" title="🎨 HTML PPT 生成器" width="600px" destroy-on-close>
@@ -415,9 +418,10 @@ const showDocLibrary = ref(false)
 const currentUserName = ref('User')
 const docList = ref([])
 const libraryScope = ref('all')
+const UNCATEGORIZED_CATEGORY = '__uncategorized__'
 const categoryFilter = ref('')
 const categories = ref([])
-const uploadCategory = ref('默认分类')
+const uploadCategory = ref('')
 const categoryDialogVisible = ref(false)
 const categorySaving = ref(false)
 const categoryForm = ref({ name: '', color: '#ACA0CE' })
@@ -431,7 +435,7 @@ const pptDialogVisible = ref(false)
 const pptLoading = ref(false)
 const newDocDialogVisible = ref(false)
 const newDocSaving = ref(false)
-const newDocForm = ref({ title: '', content: '', format: 'txt', category: '默认分类' })
+const newDocForm = ref({ title: '', content: '', format: 'txt', category: '' })
 const pptForm = ref({
   title: 'DocAI 项目',
   theme: 'tokyo-night',
@@ -469,7 +473,7 @@ const mapDocument = item => ({
   time: item.createTime ? new Date(item.createTime).toLocaleDateString() : '未知',
   analyzed: !!item.summary || getProcessedDocumentIds().includes(String(item.id)),
   parseStatus: item.parseStatus || 'ready',
-  category: !item.category || item.category === 'default' ? '默认分类' : item.category,
+  category: item.category && item.category !== 'default' ? item.category : '',
   tags: Array.isArray(item.tags) ? item.tags : [],
   favorite: Array.isArray(item.tags) && item.tags.includes('_favorite'),
   extension: extensionOf(item.title),
@@ -554,19 +558,26 @@ const fetchModels = async () => {
 onMounted(() => { fetchUser(); fetchFiles(); fetchModels(); fetchCategories() })
 
 const categoryOptions = computed(() => [...new Set([
-  '默认分类',
   ...categories.value.map(category => category.name).filter(Boolean),
   ...docList.value.map(doc => doc.category).filter(Boolean)
 ])])
 const categoryDocumentCount = name => docList.value.filter(doc => doc.category === name).length
-const categoryBoards = computed(() => categoryOptions.value.map(name => {
-  const persisted = categories.value.find(category => category.name === name)
-  return { id: persisted?.id || `legacy-${name}`, name, color: persisted?.color || '#ACA0CE', count: categoryDocumentCount(name), persisted: !!persisted }
-}))
+const uncategorizedDocumentCount = computed(() => docList.value.filter(doc => !doc.category).length)
+const categoryBoards = computed(() => {
+  const boards = categoryOptions.value.map(name => {
+    const persisted = categories.value.find(category => category.name === name)
+    return { id: persisted?.id || `legacy-${name}`, name, value: name, color: persisted?.color || '#ACA0CE', count: categoryDocumentCount(name), persisted: !!persisted }
+  })
+  if (uncategorizedDocumentCount.value) {
+    boards.unshift({ id: UNCATEGORIZED_CATEGORY, name: '未分类', value: UNCATEGORIZED_CATEGORY, color: '#B7AFBD', count: uncategorizedDocumentCount.value, persisted: false })
+  }
+  return boards
+})
 const persistedCategoryBoards = computed(() => categoryBoards.value.filter(board => board.persisted))
 const filteredList = computed(() => docList.value.filter(doc => {
   if (libraryScope.value === 'favorite' && !doc.favorite) return false
-  if (categoryFilter.value && doc.category !== categoryFilter.value) return false
+  if (categoryFilter.value === UNCATEGORIZED_CATEGORY && doc.category) return false
+  if (categoryFilter.value && categoryFilter.value !== UNCATEGORIZED_CATEGORY && doc.category !== categoryFilter.value) return false
   return doc.name.toLowerCase().includes(search.value.toLowerCase())
 }))
 const statusLabel = doc => doc.parseStatus === 'parsing' ? '解析中' : doc.parseStatus === 'failed' ? '解析失败' : doc.analyzed ? '已处理' : '已解析'
@@ -618,7 +629,8 @@ const handleSearch = async () => {
 
 // 飞书化上传交互
 const triggerUpload = () => {
-  if (categoryFilter.value) uploadCategory.value = categoryFilter.value
+  if (categoryFilter.value === UNCATEGORIZED_CATEGORY) uploadCategory.value = ''
+  else if (categoryFilter.value) uploadCategory.value = categoryFilter.value
   fileInputRef.value?.click()
 }
 
@@ -639,7 +651,7 @@ const onFileSelected = async (event) => {
     await docApi.createDoc({
       title: rawFile.name,
       fileId: fileId,
-      category: uploadCategory.value || '默认分类'
+      category: uploadCategory.value || null
     })
 
     ElMessage.success(`《${rawFile.name}》已成功存入云端！`)
@@ -661,7 +673,7 @@ const resetCategoryForm = () => {
 
 const ensureCategoryExists = async name => {
   const normalizedName = String(name || '').trim()
-  if (!normalizedName || normalizedName === '默认分类' || categories.value.some(category => category.name === normalizedName)) return
+  if (!normalizedName || categories.value.some(category => category.name === normalizedName)) return
   const res = await docApi.createCategory({ name: normalizedName, color: '#ACA0CE' })
   if (res.data) categories.value.push(res.data)
   else await fetchCategories()
@@ -687,21 +699,23 @@ const createCategory = async () => {
 }
 
 const removeCategory = async board => {
-  if (board.count > 0) { ElMessage.warning('请先把该板块中的文档移到其他板块'); return }
   try {
-    await ElMessageBox.confirm(`确定删除“${board.name}”板块吗？`, '删除分类板块', { type: 'warning' })
+    const description = board.count
+      ? `“${board.name}”中有 ${board.count} 篇文档。删除后，这些文档会自动变为“未分类”，但仍保留在全部文档中。`
+      : `确定删除“${board.name}”板块吗？`
+    await ElMessageBox.confirm(description, '删除分类板块', { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' })
     await docApi.deleteCategory(board.id)
     categories.value = categories.value.filter(category => category.id !== board.id)
-    if (categoryFilter.value === board.name) categoryFilter.value = ''
-    ElMessage.success('分类板块已删除')
+    if (categoryFilter.value === board.value) categoryFilter.value = ''
+    await fetchFiles()
+    ElMessage.success(board.count ? '分类已删除，原文档已归为未分类' : '分类板块已删除')
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') ElMessage.error(error?.response?.data?.message || '删除分类板块失败')
   }
 }
-
 const resetNewDocumentForm = () => {
   newDocSaving.value = false
-  newDocForm.value = { title: '', content: '', format: 'txt', category: '默认分类' }
+  newDocForm.value = { title: '', content: '', format: 'txt', category: '' }
 }
 
 const buildNewDocumentFile = async () => {
@@ -741,7 +755,7 @@ const saveNewDocument = async () => {
   newDocSaving.value = true
   loading.value = true
   try {
-    const targetCategory = newDocForm.value.category.trim() || '默认分类'
+    const targetCategory = newDocForm.value.category.trim() || null
     await ensureCategoryExists(targetCategory)
     const rawFile = await buildNewDocumentFile()
     const fileRes = await fileApi.upload(rawFile)
@@ -1024,6 +1038,7 @@ const goToAIOps = () => {
 .document-thumbnail { width: 100%; height: 100%; object-fit: cover; transition: transform .25s ease; }
 .doc-card:hover .document-thumbnail { transform: scale(1.04); }
 .file-kind { position: absolute; right: 10px; bottom: 9px; min-width: 34px; padding: 3px 7px; border-radius: 999px; background: rgba(50, 42, 59, .48); color: #fff; text-align: center; font-size: 10px; font-weight: 700; backdrop-filter: blur(6px); }
+.doc-category-badge { position: absolute; left: 10px; top: 9px; max-width: calc(100% - 78px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 4px 8px; border-radius: 999px; background: rgba(255, 255, 255, .92); color: #746589; font-size: 10px; font-weight: 700; box-shadow: 0 2px 7px rgba(48, 39, 57, .14); }
 .doc-tags { min-width: 0; display: inline-flex; align-items: center; gap: 3px; color: #8b7da0; }
 .doc-tags em { max-width: 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-style: normal; }
 .card-info { padding: 12px 16px; }
@@ -1044,12 +1059,12 @@ const goToAIOps = () => {
 .library-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; }
 .library-title { font-size: 24px; font-weight: 700; color: #1f2329; display: flex; align-items: center; gap: 10px; margin: 0 0 6px; }
 .library-subtitle { font-size: 14px; color: #8f959e; margin: 0; }
-.library-actions { display: flex; gap: 12px; align-items: center; }.category-boards { display: flex; flex-wrap: wrap; gap: 10px; margin: -8px 0 22px; }.workbench-category-section { margin: 0 0 28px; padding: 18px 20px; border: 1px solid #e9e3ed; border-radius: 16px; background: linear-gradient(135deg, #fff 0%, #fbf9fc 100%); }
+.library-actions { display: flex; gap: 12px; align-items: center; }.category-boards { display: flex; flex-wrap: wrap; gap: 10px; margin: -8px 0 22px; }.workbench-category-section { margin: 0 0 28px; padding: 16px 0 6px; border: 0; border-top: 1px solid #e5e1e8; border-radius: 0; background: transparent; }
 .workbench-category-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .workbench-category-title { color: #4f4658; font-size: 16px; font-weight: 700; }
 .workbench-category-subtitle { margin-left: 10px; color: #9a909f; font-size: 12px; }
 .workbench-category-boards { margin: 0; }
-.category-board { min-height: 38px; border: 1px solid #e5dfeb; border-radius: 12px; background: #fff; color: #5f5870; padding: 0 13px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font: inherit; transition: all .2s ease; }
+.category-board { min-height: 36px; border: 1px solid #e2dde5; border-radius: 10px; background: #f8f7f8; color: #5f5870; padding: 0 13px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font: inherit; transition: color .2s ease, border-color .2s ease, background .2s ease; }
 .category-board:hover, .category-board.active { border-color: #a99ac2; background: #f5f1f7; color: #70618c; box-shadow: 0 4px 12px rgba(123, 104, 157, .12); }
 .category-board strong { color: #8b7aa7; font-size: 12px; font-weight: 700; }
 .category-board-create { border-style: dashed; color: #85749f; }

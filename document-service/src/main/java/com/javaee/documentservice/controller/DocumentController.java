@@ -6,6 +6,7 @@ package com.javaee.documentservice.controller;
  */
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.javaee.common.exception.BusinessException;
 import com.javaee.common.model.Result;
 import com.javaee.documentservice.dto.DocumentCategoryDTO;
@@ -200,20 +201,17 @@ public class DocumentController {
     }
 
     @DeleteMapping("/categories/{id}")
-    @Operation(summary = "删除空分类板块", description = "仅当分类下没有文档时允许删除，避免文档失去归类")
+    @Operation(summary = "删除分类板块", description = "删除时会将该板块内文档自动设为未分类，文档本身不会丢失")
     public Result<Void> deleteCategory(@PathVariable String id) {
         Long userId = requestUserContext.getRequiredUserId();
         DocumentCategory category = documentCategoryMapper.selectById(id);
         if (category == null || !userId.equals(category.getUserId())) {
             throw new BusinessException("分类板块不存在或无权操作");
         }
-        Long documentCount = documentMapper.selectCount(new LambdaQueryWrapper<Document>()
+        documentMapper.update(null, new LambdaUpdateWrapper<Document>()
                 .eq(Document::getUserId, userId)
                 .eq(Document::getCategory, category.getName())
-                .ne(Document::getStatus, "deleted"));
-        if (documentCount != null && documentCount > 0) {
-            throw new BusinessException("请先将该板块中的文档移出后再删除");
-        }
+                .set(Document::getCategory, null));
         documentCategoryMapper.deleteById(id);
         return Result.success();
     }
