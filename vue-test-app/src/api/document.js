@@ -69,6 +69,8 @@ export const docApi = {
     },
 
     submitToolboxJob: (data) => request.post('/documents/toolbox/jobs', data),
+    listToolboxJobs: () => request.get('/documents/toolbox/jobs'),
+    retryToolboxJob: (jobId) => request.post(`/documents/toolbox/jobs/${jobId}/retry`),
     getToolboxJob: (jobId) => request.get(`/documents/toolbox/jobs/${jobId}`),
     downloadToolboxJob: (jobId) => request.get(`/documents/toolbox/jobs/${jobId}/download`, { responseType: 'blob' })
 }

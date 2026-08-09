@@ -15,6 +15,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
@@ -44,12 +45,18 @@ public class ToolboxJobService {
     private static final String EXCHANGE = "file.exchange";
     private static final String QUEUE = "document.toolbox.queue";
     private static final String KEY = "document.toolbox";
+    private static final String REDIS_JOB_PREFIX = "smartdoc:toolbox:job:";
+    private static final String REDIS_OUTPUT_PREFIX = "smartdoc:toolbox:output:";
+    private static final String REDIS_TOKEN_PREFIX = "smartdoc:toolbox:token:";
+    private static final String REDIS_USER_PREFIX = "smartdoc:toolbox:user:";
+    private static final long JOB_TTL_DAYS = 7;
     private static final Set<String> SUPPORTED_TYPES = Set.of(
             "OCR", "PDF_SPLIT", "PDF_MERGE", "WORD_TABLE_EXCEL", "DOCX_TO_PDF", "PDF_TO_DOCX"
     );
 
     private final DocumentService documents;
     private final RabbitTemplate rabbit;
+    private final RedisTemplate<String, Object> redis;
     private final RestTemplate http = new RestTemplate();
     private final Map<String, Map<String, Object>> jobs = new ConcurrentHashMap<>();
     private final Map<String, byte[]> files = new ConcurrentHashMap<>();
@@ -59,9 +66,10 @@ public class ToolboxJobService {
     @Value("${file.service.url:http://localhost:8082}")
     private String fileUrl;
 
-    public ToolboxJobService(DocumentService documents, RabbitTemplate rabbit) {
+    public ToolboxJobService(DocumentService documents, RabbitTemplate rabbit, RedisTemplate<String, Object> redis) {
         this.documents = documents;
         this.rabbit = rabbit;
+        this.redis = redis;
     }
 
     public Map<String, Object> submit(ToolboxJobRequest request, Long userId, String authorization) {
@@ -75,7 +83,9 @@ public class ToolboxJobService {
         if ("PDF_MERGE".equals(type) && request.getDocumentIds().size() < 2) {
             throw new BusinessException("PDF merge requires at least two documents");
         }
-        request.getDocumentIds().forEach(id -> documents.getById(id, userId));
+        List<DocumentVO> sourceDocuments = request.getDocumentIds().stream()
+                .map(id -> documents.getById(id, userId))
+                .toList();
 
         String jobId = UUID.randomUUID().toString().replace("-", "");
         Map<String, Object> job = new ConcurrentHashMap<>();
@@ -83,6 +93,7 @@ public class ToolboxJobService {
         job.put("userId", userId);
         job.put("toolType", type);
         job.put("documentIds", request.getDocumentIds());
+        job.put("documentNames", sourceDocuments.stream().map(DocumentVO::getTitle).toList());
         job.put("pages", Optional.ofNullable(request.getPages()).orElse(""));
         job.put("status", "PENDING");
         job.put("progress", 5);
@@ -90,6 +101,8 @@ public class ToolboxJobService {
         job.put("createdAt", Instant.now().toString());
         jobs.put(jobId, job);
         jobTokens.put(jobId, authorization);
+        persistJob(job);
+        persistToken(jobId, authorization);
         rabbit.convertAndSend(EXCHANGE, KEY, jobId);
         return snapshot(jobId, userId);
     }
@@ -98,9 +111,57 @@ public class ToolboxJobService {
         return new LinkedHashMap<>(owned(jobId, userId));
     }
 
+    public List<Map<String, Object>> list(Long userId) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        try {
+            Set<Object> ids = redis.opsForZSet().reverseRange(REDIS_USER_PREFIX + userId, 0, 99);
+            if (ids != null) {
+                for (Object id : ids) {
+                    try { result.add(snapshot(String.valueOf(id), userId)); } catch (Exception ignored) { }
+                }
+            }
+        } catch (Exception ignored) { }
+        if (result.isEmpty()) {
+            jobs.values().stream()
+                    .filter(job -> userId.equals(((Number) job.get("userId")).longValue()))
+                    .sorted(Comparator.comparing(job -> String.valueOf(job.get("createdAt")), Comparator.reverseOrder()))
+                    .map(LinkedHashMap::new)
+                    .forEach(result::add);
+        }
+        return result;
+    }
+
+    public Map<String, Object> retry(String jobId, Long userId, String authorization) {
+        Map<String, Object> job = owned(jobId, userId);
+        if (!"FAILED".equals(String.valueOf(job.get("status")))) {
+            throw new BusinessException("Only failed tasks can be retried");
+        }
+        files.remove(jobId);
+        try { redis.delete(REDIS_OUTPUT_PREFIX + jobId); } catch (Exception ignored) { }
+        job.put("status", "PENDING");
+        job.put("progress", 5);
+        job.put("message", "Retry queued");
+        job.put("retryCount", ((Number) job.getOrDefault("retryCount", 0)).intValue() + 1);
+        job.put("updatedAt", Instant.now().toString());
+        jobTokens.put(jobId, authorization);
+        persistToken(jobId, authorization);
+        persistJob(job);
+        rabbit.convertAndSend(EXCHANGE, KEY, jobId);
+        return snapshot(jobId, userId);
+    }
+
     public byte[] output(String jobId, Long userId) {
         owned(jobId, userId);
         byte[] output = files.get(jobId);
+        if (output == null) {
+            try {
+                Object stored = redis.opsForValue().get(REDIS_OUTPUT_PREFIX + jobId);
+                if (stored instanceof byte[] bytes) {
+                    output = bytes;
+                    files.put(jobId, bytes);
+                }
+            } catch (Exception ignored) { }
+        }
         if (output == null) {
             throw new BusinessException("The result file is not ready yet");
         }
@@ -111,9 +172,13 @@ public class ToolboxJobService {
     public void process(String jobId) {
         Map<String, Object> job = jobs.get(jobId);
         if (job == null) {
-            return;
+            job = loadJob(jobId);
+            if (job != null) jobs.put(jobId, job);
         }
-        requestToken.set(jobTokens.get(jobId));
+        if (job == null) return;
+        String token = jobTokens.get(jobId);
+        if (token == null) token = loadToken(jobId);
+        requestToken.set(token);
         try {
             update(job, "PROCESSING", 15, "Reading source file");
             @SuppressWarnings("unchecked")
@@ -134,6 +199,7 @@ public class ToolboxJobService {
                 default -> throw new BusinessException("Unsupported toolbox job type");
             };
             files.put(jobId, result);
+            persistOutput(jobId, result);
             job.put("fileName", fileName(type));
             job.put("contentType", contentType(type));
             update(job, "SUCCESS", 100, "Completed. Your result is ready to download.");
@@ -142,6 +208,7 @@ public class ToolboxJobService {
         } finally {
             requestToken.remove();
             jobTokens.remove(jobId);
+            try { redis.delete(REDIS_TOKEN_PREFIX + jobId); } catch (Exception ignored) { }
         }
     }
 
@@ -284,6 +351,10 @@ public class ToolboxJobService {
     private Map<String, Object> owned(String jobId, Long userId) {
         Map<String, Object> job = jobs.get(jobId);
         if (job == null) {
+            job = loadJob(jobId);
+            if (job != null) jobs.put(jobId, job);
+        }
+        if (job == null) {
             throw new BusinessException("Task does not exist or has expired");
         }
         if (!userId.equals(((Number) job.get("userId")).longValue())) {
@@ -297,6 +368,56 @@ public class ToolboxJobService {
         job.put("progress", progress);
         job.put("message", message);
         job.put("updatedAt", Instant.now().toString());
+        persistJob(job);
+    }
+
+    private void persistJob(Map<String, Object> job) {
+        try {
+            String jobId = String.valueOf(job.get("jobId"));
+            Long userId = ((Number) job.get("userId")).longValue();
+            String key = REDIS_JOB_PREFIX + jobId;
+            redis.opsForValue().set(key, new LinkedHashMap<>(job), JOB_TTL_DAYS, TimeUnit.DAYS);
+            String userKey = REDIS_USER_PREFIX + userId;
+            redis.opsForZSet().add(userKey, jobId, Instant.parse(String.valueOf(job.get("createdAt"))).toEpochMilli());
+            redis.expire(userKey, JOB_TTL_DAYS, TimeUnit.DAYS);
+        } catch (Exception ignored) {
+            // Redis unavailable: keep the in-memory fallback active.
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> loadJob(String jobId) {
+        try {
+            Object value = redis.opsForValue().get(REDIS_JOB_PREFIX + jobId);
+            if (value instanceof Map<?, ?> map) {
+                Map<String, Object> restored = new ConcurrentHashMap<>();
+                map.forEach((key, item) -> restored.put(String.valueOf(key), item));
+                return restored;
+            }
+        } catch (Exception ignored) { }
+        return null;
+    }
+
+    private void persistOutput(String jobId, byte[] output) {
+        try {
+            redis.opsForValue().set(REDIS_OUTPUT_PREFIX + jobId, output, JOB_TTL_DAYS, TimeUnit.DAYS);
+        } catch (Exception ignored) { }
+    }
+
+    private void persistToken(String jobId, String authorization) {
+        if (authorization == null || authorization.isBlank()) return;
+        try {
+            redis.opsForValue().set(REDIS_TOKEN_PREFIX + jobId, authorization, 2, TimeUnit.HOURS);
+        } catch (Exception ignored) { }
+    }
+
+    private String loadToken(String jobId) {
+        try {
+            Object token = redis.opsForValue().get(REDIS_TOKEN_PREFIX + jobId);
+            return token == null ? null : String.valueOf(token);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private Set<Integer> parsePages(String rawPages) {
