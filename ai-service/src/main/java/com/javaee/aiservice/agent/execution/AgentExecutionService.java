@@ -39,7 +39,9 @@ import com.javaee.aiservice.dto.TextAnalyzeDTO;
 import com.javaee.aiservice.dto.TextSummarizeDTO;
 import com.javaee.aiservice.internal.InternalService;
 import com.javaee.aiservice.rag.KnowledgeBase;
+import com.javaee.aiservice.rag.DocumentSegmenter;
 import com.javaee.aiservice.rag.Reranker;
+import com.javaee.aiservice.rag.PermissionAwareRagService;
 import com.javaee.aiservice.security.BucketPermissionService;
 import com.javaee.aiservice.security.RequestUserContext;
 import com.javaee.aiservice.service.AIService;
@@ -91,6 +93,9 @@ public class AgentExecutionService {
 
     @Autowired
     private KnowledgeBase knowledgeBase;
+
+    @Autowired
+    private PermissionAwareRagService permissionAwareRag;
 
     @Autowired
     private KnowledgeIndexAgent knowledgeIndexAgent;
@@ -2196,7 +2201,8 @@ public class AgentExecutionService {
     private List<Map<String, Object>> searchKnowledge(String query, int topK, String strategy, String userId, String knowledgeBaseId) {
         Reranker.RerankStrategy rerankStrategy = parseRerankStrategy(strategy);
         int limitedTopK = Math.max(1, Math.min(topK, 20));
-        return knowledgeBase.hybridSearchWithRerank(query, limitedTopK, rerankStrategy, userId, valueOrDefault(knowledgeBaseId, "default"));
+        return permissionAwareRag.hybridSearchWithRerank(query, limitedTopK,
+                valueOrDefault(knowledgeBaseId, "default"), rerankStrategy, DocumentSegmenter.StrategyType.CHAPTER);
     }
 
     private Reranker.RerankStrategy parseRerankStrategy(String strategy) {

@@ -61,7 +61,7 @@
       <div class="no-collab" v-else-if="isConnected">
         <span>点击"加入协作"开始实时同步</span>
       </div>
-      <div class="share-box">
+      <div class="share-box" v-if="isCurrentUserOwner">
         <div class="share-title">授权协作者</div>
         <div class="share-row">
           <el-input
@@ -213,7 +213,7 @@ async function handleRevoke(userId) {
   }
 }
 
-let isCurrentUserOwner = false
+const isCurrentUserOwner = ref(false)
 
 const fetchCollaborators = async () => {
   if (!props.documentId) return
@@ -222,7 +222,7 @@ const fetchCollaborators = async () => {
     const all = res.data || []
     // 判断当前用户是否为文档创建者
     const currentUserAccess = all.find(u => String(u.userId) === String(props.userId))
-    isCurrentUserOwner = currentUserAccess?.role === 'owner'
+    isCurrentUserOwner.value = currentUserAccess?.role === 'owner'
     // 排除自己
     const collaborators = all.filter(u => String(u.userId) !== String(props.userId))
     // 为每个协作者获取用户名

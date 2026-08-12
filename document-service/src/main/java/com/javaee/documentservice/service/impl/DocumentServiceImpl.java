@@ -12,6 +12,8 @@ import com.javaee.documentservice.mapper.DocumentVersionMapper;
 import com.javaee.documentservice.service.DocumentAccessService;
 import com.javaee.documentservice.service.DocumentContentService;
 import com.javaee.documentservice.service.DocumentService;
+import com.javaee.documentservice.service.EnterpriseAuditService;
+import com.javaee.documentservice.service.EnterprisePermissionService;
 import com.javaee.documentservice.util.DocumentParserUtil;
 import com.javaee.documentservice.vo.DocumentVO;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -52,6 +54,12 @@ public class DocumentServiceImpl implements DocumentService {
     private DocumentAccessService documentAccessService;
 
     @Autowired
+    private EnterprisePermissionService enterprisePermissionService;
+
+    @Autowired
+    private EnterpriseAuditService enterpriseAuditService;
+
+    @Autowired
     private FileServiceClient fileServiceClient;
 
     @Autowired
@@ -68,12 +76,16 @@ public class DocumentServiceImpl implements DocumentService {
     @Override
     @Transactional
     public DocumentVO create(DocumentCreateDTO dto, Long userId) {
+        enterprisePermissionService.assertCanPlace(dto.getOrganizationId(), dto.getDepartmentId(), dto.getFolderId(), userId);
         Document document = new Document();
         document.setTitle(dto.getTitle());
         document.setFileId(dto.getFileId());
         document.setCategory(dto.getCategory());
         document.setTags(convertListToJson(dto.getTags()));
         document.setUserId(userId);
+        document.setOrganizationId(dto.getOrganizationId());
+        document.setDepartmentId(dto.getDepartmentId());
+        document.setFolderId(dto.getFolderId());
         document.setBucketName(documentContentService.getBucketName(userId));
         document.setStatus("active");
         document.setParseStatus(dto.getFileId() == null || dto.getFileId().isBlank() ? "ready" : "parsing");
@@ -139,6 +151,7 @@ public class DocumentServiceImpl implements DocumentService {
 
         DocumentVO vo = convertToVO(document);
         vo.setContent(content);
+        enterpriseAuditService.record(document.getOrganizationId(), userId, "DOCUMENT_CREATE", "document", document.getId(), document.getTitle());
         return vo;
     }
 
@@ -160,6 +173,7 @@ public class DocumentServiceImpl implements DocumentService {
 
         // 获取当前内容用于保存版本
         documentAccessService.assertCanWrite(document, userId);
+        String originalOrganizationId = document.getOrganizationId();
 
         String currentContent = documentContentService.getContent(id, storageBucketName(document));
 
@@ -170,6 +184,16 @@ public class DocumentServiceImpl implements DocumentService {
         }
         if (dto.getCategory() != null) {
             document.setCategory(dto.getCategory());
+        }
+        if (dto.getOrganizationId() != null || dto.getDepartmentId() != null || dto.getFolderId() != null) {
+            String targetOrganization = dto.getOrganizationId() == null ? document.getOrganizationId() : blankToNull(dto.getOrganizationId());
+            String targetDepartment = dto.getDepartmentId() == null ? document.getDepartmentId() : blankToNull(dto.getDepartmentId());
+            String targetFolder = dto.getFolderId() == null ? document.getFolderId() : blankToNull(dto.getFolderId());
+            if (targetOrganization == null) { targetDepartment = null; targetFolder = null; }
+            enterprisePermissionService.assertCanPlace(targetOrganization, targetDepartment, targetFolder, userId);
+            document.setOrganizationId(targetOrganization);
+            document.setDepartmentId(targetDepartment);
+            document.setFolderId(targetFolder);
         }
         if (dto.getTags() != null) {
             document.setTags(convertListToJson(dto.getTags()));
@@ -195,6 +219,8 @@ public class DocumentServiceImpl implements DocumentService {
 
         DocumentVO vo = convertToVO(document);
         vo.setContent(dto.getContent());
+        enterpriseAuditService.record(document.getOrganizationId() == null ? originalOrganizationId : document.getOrganizationId(), userId,
+                "DOCUMENT_UPDATE", "document", document.getId(), dto.getChangeLog());
         return vo;
     }
 
@@ -243,6 +269,10 @@ public class DocumentServiceImpl implements DocumentService {
             throw new BusinessException("Reparse original upload failed: " + exception.getMessage());
         }
     }
+
+    private String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
+    }
     /**
      * 删除文档（软删除）
      * 将文档状态标记为已删除，不物理删除
@@ -263,6 +293,7 @@ public class DocumentServiceImpl implements DocumentService {
         document.setStatus("deleted");
         document.setUpdateTime(LocalDateTime.now());
         documentMapper.updateById(document);
+        enterpriseAuditService.record(document.getOrganizationId(), userId, "DOCUMENT_DELETE", "document", document.getId(), document.getTitle());
 
         // 回收站保留正文和原始文件，只有永久删除才清理存储。
     }
@@ -492,6 +523,9 @@ public class DocumentServiceImpl implements DocumentService {
         vo.setKeywords(convertJsonToList(document.getKeywords()));
         vo.setFileId(document.getFileId());
         vo.setUserId(document.getUserId());
+        vo.setOrganizationId(document.getOrganizationId());
+        vo.setDepartmentId(document.getDepartmentId());
+        vo.setFolderId(document.getFolderId());
         vo.setBucketName(storageBucketName(document));
         vo.setObjectName(storageObjectName(document));
         vo.setCategory(document.getCategory());

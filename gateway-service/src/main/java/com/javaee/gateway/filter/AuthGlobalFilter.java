@@ -42,6 +42,7 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
             "/api/users/login",
             "/api/users/register",
             "/api/users/refresh",
+            "/api/public/shares/**",
             "/actuator/**",
             "/ws/**"
     );

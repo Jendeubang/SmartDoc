@@ -25,6 +25,12 @@ public class DocumentVO {
 
     private Long userId;
 
+    private String organizationId;
+
+    private String departmentId;
+
+    private String folderId;
+
     private String bucketName;
 
     private String objectName;

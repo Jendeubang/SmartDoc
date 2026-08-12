@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
@@ -21,6 +22,7 @@ import java.util.List;
  * existing deployment was created from an older SQL file.
  */
 @Component
+@Order(10)
 public class DocumentSchemaInitializer implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(DocumentSchemaInitializer.class);
@@ -31,7 +33,8 @@ public class DocumentSchemaInitializer implements ApplicationRunner {
             "document_access",
             "document_version",
             "document_comment",
-            "document_annotation"
+            "document_annotation",
+            "document_suggestion"
     );
 
     private final DataSource dataSource;
@@ -240,6 +243,26 @@ addColumnIfMissing(connection, statement, "document_access", "expires_at",
                       INDEX `idx_user_id` (`user_id`),
                       INDEX `idx_line_number` (`line_number`)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='文档批注表'
+                    """);
+
+            execute(statement, """
+                    CREATE TABLE IF NOT EXISTS `document_suggestion` (
+                      `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+                      `document_id` VARCHAR(64) NOT NULL,
+                      `user_id` BIGINT NOT NULL,
+                      `original_text` TEXT,
+                      `suggested_text` TEXT NOT NULL,
+                      `start_offset` INT,
+                      `end_offset` INT,
+                      `reason` VARCHAR(500),
+                      `status` VARCHAR(20) NOT NULL DEFAULT 'pending',
+                      `reviewed_by` BIGINT,
+                      `review_comment` VARCHAR(500),
+                      `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP,
+                      `review_time` DATETIME,
+                      INDEX `idx_suggestion_document` (`document_id`, `status`),
+                      INDEX `idx_suggestion_user` (`user_id`)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='文档建议修订表'
                     """);
 
             normalizeManagedTableCollations(connection, statement);

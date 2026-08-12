@@ -70,6 +70,25 @@ public class DocumentServiceClient {
     }
 
     @SuppressWarnings("unchecked")
+    public List<String> getAccessibleDocumentIds() {
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                baseUrl() + "/api/documents/access/ids", HttpMethod.GET,
+                new HttpEntity<>(headers()), new ParameterizedTypeReference<>() {});
+        Map<String, Object> body = response.getBody();
+        if (!response.getStatusCode().is2xxSuccessful() || body == null || !"200".equals(String.valueOf(body.get("code")))) {
+            throw new SecurityException("无法获取文档授权范围");
+        }
+        Object data = body.get("data");
+        if (!(data instanceof List<?> list)) return List.of();
+        return list.stream().map(String::valueOf).toList();
+    }
+
+    public void assertDocumentAccess(String documentId, boolean write) {
+        restTemplate.exchange(documentUrl(documentId) + "/access?mode=" + (write ? "write" : "read"),
+                HttpMethod.GET, new HttpEntity<>(headers()), new ParameterizedTypeReference<Map<String, Object>>() {});
+    }
+
+    @SuppressWarnings("unchecked")
     private Map<String, Object> extractData(ResponseEntity<Map<String, Object>> response) {
         if (!response.getStatusCode().is2xxSuccessful()) {
             throw new IllegalStateException("document-service returned HTTP " + response.getStatusCode().value());
@@ -112,8 +131,11 @@ public class DocumentServiceClient {
     }
 
     private String documentUrl(String documentId) {
-        String base = documentServiceUrl == null ? "" : documentServiceUrl.replaceAll("/+$", "");
         String encodedDocumentId = UriUtils.encodePathSegment(documentId, StandardCharsets.UTF_8);
-        return base + "/api/documents/" + encodedDocumentId;
+        return baseUrl() + "/api/documents/" + encodedDocumentId;
+    }
+
+    private String baseUrl() {
+        return documentServiceUrl == null ? "" : documentServiceUrl.replaceAll("/+$", "");
     }
 }

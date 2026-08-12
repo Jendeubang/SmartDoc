@@ -102,7 +102,7 @@ public class GatewayConfig {
 
                 // ── 文档服务 ──────────────────────────────────────────
                 .route("document", r -> r
-                        .path("/api/documents/**")
+                        .path("/api/documents/**", "/api/enterprise/**", "/api/public/shares/**")
                         .filters(f -> f
                                 .requestRateLimiter(c -> c
                                         .setRateLimiter(defaultRateLimiter)

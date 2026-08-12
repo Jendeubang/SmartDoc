@@ -7,6 +7,7 @@ import com.javaee.documentservice.entity.DocumentAnnotation;
 import com.javaee.documentservice.mapper.DocumentAnnotationMapper;
 import com.javaee.documentservice.mapper.DocumentMapper;
 import com.javaee.documentservice.service.AnnotationService;
+import com.javaee.documentservice.service.DocumentAccessService;
 import com.javaee.documentservice.vo.AnnotationVO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,6 +29,7 @@ public class AnnotationServiceImpl implements AnnotationService {
 
     @Autowired
     private DocumentMapper documentMapper;
+    @Autowired private DocumentAccessService documentAccessService;
 
     @Override
     @Transactional
@@ -36,6 +38,7 @@ public class AnnotationServiceImpl implements AnnotationService {
         if (document == null) {
             throw new BusinessException("文档不存在");
         }
+        documentAccessService.assertCanRead(document, userId);
 
         DocumentAnnotation annotation = new DocumentAnnotation();
         annotation.setDocumentId(dto.getDocumentId());

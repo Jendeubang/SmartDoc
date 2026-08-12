@@ -13,7 +13,9 @@ import com.javaee.aiservice.agent.execution.tool.AgentToolDefinition;
 import com.javaee.aiservice.conversation.ConversationManager;
 import com.javaee.aiservice.rag.DocumentSegmenter;
 import com.javaee.aiservice.rag.KnowledgeBase;
+import com.javaee.aiservice.rag.PermissionAwareRagService;
 import com.javaee.aiservice.security.RequestUserContext;
+import com.javaee.common.exception.BusinessException;
 import com.javaee.common.model.Result;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -47,6 +49,9 @@ public class AgentController {
     @Autowired
     private ChatService chatService;
 
+    @Autowired
+    private PermissionAwareRagService permissionAwareRag;
+
     @PostMapping("/execute")
     @Operation(summary = "执行统一Agent链路", description = "自动完成任务规划、工具调用、RAG检索、最终回答和对话记忆")
     public Result<Map<String, Object>> executeAgent(@RequestBody AgentExecutionRequest request) {
@@ -74,6 +79,7 @@ public class AgentController {
     public Result<Map<String, Object>> indexKnowledge(
             @Parameter(description = "文档ID") @RequestParam String documentId,
             @Parameter(description = "文档内容") @RequestBody String content) {
+        permissionAwareRag.assertCanIndex(documentId);
         Map<String, Object> metadata = userMetadata();
         Map<String, Object> result = knowledgeIndexAgent.indexDocumentAsync(documentId, content, metadata);
         return Result.success(result);
@@ -86,6 +92,7 @@ public class AgentController {
             @Parameter(description = "文档内容") @RequestBody String content,
             @Parameter(description = "分段策略: AUTO, FIXED_LENGTH, CHAPTER, SEMANTIC, HYBRID")
             @RequestParam(defaultValue = "AUTO") String strategy) {
+        permissionAwareRag.assertCanIndex(documentId);
         DocumentSegmenter.StrategyType strategyType;
         try {
             strategyType = DocumentSegmenter.StrategyType.valueOf(strategy.toUpperCase());
@@ -104,7 +111,8 @@ public class AgentController {
             @Parameter(description = "查询词") @RequestParam String query,
             @Parameter(description = "返回数量") @RequestParam(defaultValue = "5") int topK) {
         String userId = requestUserContext.getRequiredUserId();
-        List<Map<String, Object>> results = knowledgeIndexAgent.searchKnowledge(query, topK, userId, "default");
+        List<Map<String, Object>> results = permissionAwareRag.hybridSearchWithRerank(query, topK, "default",
+                com.javaee.aiservice.rag.Reranker.RerankStrategy.HYBRID, DocumentSegmenter.StrategyType.CHAPTER);
         return Result.success(results);
     }
 
@@ -120,7 +128,7 @@ public class AgentController {
     @Operation(summary = "查询Agent知识库任务状态", description = "根据任务ID查询知识库索引任务状态")
     public Result<Map<String, Object>> getKnowledgeJobStatus(
             @Parameter(description = "任务ID") @PathVariable String jobId) {
-        Map<String, Object> status = knowledgeIndexAgent.getJobStatus(jobId);
+        Map<String, Object> status = assertJobAccess(jobId, false);
         return Result.success(status);
     }
 
@@ -129,6 +137,7 @@ public class AgentController {
     public Result<Map<String, Object>> retryKnowledgeJob(
             @Parameter(description = "任务ID") @PathVariable String jobId,
             @Parameter(description = "文档内容") @RequestBody String content) {
+        assertJobAccess(jobId, true);
         Map<String, Object> result = knowledgeIndexAgent.retryJob(jobId, content, userMetadata());
         return Result.success(result);
     }
@@ -145,8 +154,8 @@ public class AgentController {
             return Result.fail("无效的重排序策略: " + strategy);
         }
         String userId = requestUserContext.getRequiredUserId();
-        List<Map<String, Object>> results = knowledgeBase.hybridSearchWithRerank(
-                question, 3, rerankStrategy, userId, "default");
+        List<Map<String, Object>> results = permissionAwareRag.hybridSearchWithRerank(
+                question, 3, "default", rerankStrategy, DocumentSegmenter.StrategyType.CHAPTER);
         StringBuilder context = new StringBuilder();
         for (Map<String, Object> r : results) {
             context.append(r.getOrDefault("content", "")).append("\n\n");
@@ -160,7 +169,7 @@ public class AgentController {
     @Operation(summary = "Agent知识库统计", description = "获取知识库的统计信息")
     public Result<Map<String, Object>> getKnowledgeStatistics() {
         String userId = requestUserContext.getRequiredUserId();
-        Map<String, Object> statistics = knowledgeBase.getStatistics(userId, "default");
+        Map<String, Object> statistics = permissionAwareRag.statistics("default");
         return Result.success(statistics);
     }
 
@@ -201,5 +210,17 @@ public class AgentController {
                 "userId", requestUserContext.getRequiredUserId(),
                 "knowledgeBaseId", "default"
         );
+    }
+
+    private Map<String, Object> assertJobAccess(String jobId, boolean write) {
+        Map<String, Object> status = knowledgeIndexAgent.getJobStatus(jobId);
+        if ("not_found".equals(String.valueOf(status.get("status")))) {
+            throw new BusinessException("索引任务不存在");
+        }
+        String documentId = String.valueOf(status.getOrDefault("documentId", ""));
+        if (documentId.isBlank()) throw new BusinessException("索引任务缺少文档信息");
+        if (write) permissionAwareRag.assertCanIndex(documentId);
+        else permissionAwareRag.assertCanRead(documentId);
+        return status;
     }
 }

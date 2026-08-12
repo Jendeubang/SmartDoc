@@ -8,6 +8,7 @@ package com.javaee.aiservice.controller;
 import com.javaee.aiservice.agent.ChatService;
 import com.javaee.aiservice.rag.DocumentSegmenter;
 import com.javaee.aiservice.rag.KnowledgeBase;
+import com.javaee.aiservice.rag.PermissionAwareRagService;
 import com.javaee.aiservice.rag.Reranker;
 import com.javaee.aiservice.rag.VectorStore;
 import com.javaee.aiservice.security.RequestUserContext;
@@ -49,6 +50,9 @@ public class RagController {
     @Autowired
     private RequestUserContext requestUserContext;
 
+    @Autowired
+    private PermissionAwareRagService permissionAwareRag;
+
     /**
      * 文档索引
      */
@@ -58,6 +62,7 @@ public class RagController {
             @Parameter(description = "文档ID") @RequestParam String documentId,
             @Parameter(description = "知识库ID") @RequestParam(defaultValue = "default") String knowledgeBaseId,
             @Parameter(description = "文档内容") @RequestBody String content) {
+        permissionAwareRag.assertCanIndex(documentId);
         knowledgeBase.addDocument(documentId, content, userMetadata(knowledgeBaseId));
         return Result.success();
     }
@@ -73,6 +78,8 @@ public class RagController {
             @Parameter(description = "知识库ID") @RequestParam(defaultValue = "default") String knowledgeBaseId,
             @Parameter(description = "分段策略: AUTO, FIXED_LENGTH, CHAPTER, SEMANTIC, HYBRID")
             @RequestParam(defaultValue = "AUTO") String strategy) {
+
+        permissionAwareRag.assertCanIndex(documentId);
 
         DocumentSegmenter.StrategyType strategyType;
         try {
@@ -94,8 +101,8 @@ public class RagController {
             @Parameter(description = "查询词") @RequestParam String query,
             @Parameter(description = "返回数量") @RequestParam(defaultValue = "5") int topK,
             @Parameter(description = "知识库ID") @RequestParam(defaultValue = "default") String knowledgeBaseId) {
-        List<Map<String, Object>> results = knowledgeBase.search(query, limitTopK(topK),
-                DocumentSegmenter.StrategyType.CHAPTER, userMetadata(knowledgeBaseId));
+        List<Map<String, Object>> results = permissionAwareRag.search(query, limitTopK(topK), knowledgeBaseId,
+                DocumentSegmenter.StrategyType.CHAPTER);
         return Result.success(results);
     }
 
@@ -108,8 +115,8 @@ public class RagController {
             @Parameter(description = "查询词") @RequestParam String query,
             @Parameter(description = "返回数量") @RequestParam(defaultValue = "5") int topK,
             @Parameter(description = "知识库ID") @RequestParam(defaultValue = "default") String knowledgeBaseId) {
-        List<Map<String, Object>> results = knowledgeBase.hybridSearch(query, limitTopK(topK),
-                DocumentSegmenter.StrategyType.CHAPTER, userMetadata(knowledgeBaseId));
+        List<Map<String, Object>> results = permissionAwareRag.hybridSearch(query, limitTopK(topK), knowledgeBaseId,
+                DocumentSegmenter.StrategyType.CHAPTER);
         return Result.success(results);
     }
 
@@ -132,8 +139,8 @@ public class RagController {
             return Result.fail("无效的重排序策略: " + strategy);
         }
 
-        List<Map<String, Object>> results = knowledgeBase.hybridSearchWithRerank(query, limitTopK(topK),
-                rerankStrategy, DocumentSegmenter.StrategyType.CHAPTER, userMetadata(knowledgeBaseId));
+        List<Map<String, Object>> results = permissionAwareRag.hybridSearchWithRerank(query, limitTopK(topK), knowledgeBaseId,
+                rerankStrategy, DocumentSegmenter.StrategyType.CHAPTER);
         return Result.success(results);
     }
 
@@ -165,8 +172,8 @@ public class RagController {
         }
 
         // 使用混合检索加重排序获取相关文档
-        List<Map<String, Object>> results = knowledgeBase.hybridSearchWithRerank(question, 3,
-                rerankStrategy, DocumentSegmenter.StrategyType.CHAPTER, userMetadata(knowledgeBaseId));
+        List<Map<String, Object>> results = permissionAwareRag.hybridSearchWithRerank(question, 3, knowledgeBaseId,
+                rerankStrategy, DocumentSegmenter.StrategyType.CHAPTER);
 
         StringBuilder context = new StringBuilder();
         for (Map<String, Object> result : results) {
@@ -193,7 +200,7 @@ public class RagController {
     @Operation(summary = "获取文档内容", description = "获取知识库中的文档内容")
     public Result<String> getDocument(
             @Parameter(description = "文档ID") @PathVariable String documentId) {
-        assertDocumentAccess(documentId);
+        permissionAwareRag.assertCanRead(documentId);
         String content = knowledgeBase.getDocumentContent(documentId);
         return Result.success(content);
     }
@@ -205,7 +212,7 @@ public class RagController {
     @Operation(summary = "删除文档", description = "从知识库删除文档")
     public Result<Void> deleteDocument(
             @Parameter(description = "文档ID") @PathVariable String documentId) {
-        assertDocumentAccess(documentId);
+        permissionAwareRag.assertCanIndex(documentId);
         knowledgeBase.removeDocument(documentId);
         return Result.success();
     }
@@ -216,7 +223,7 @@ public class RagController {
     @GetMapping("/documents")
     @Operation(summary = "获取文档列表", description = "获取知识库中的所有文档ID")
     public Result<List<String>> getAllDocuments() {
-        List<String> documentIds = knowledgeBase.getAllDocumentIds(requestUserContext.getRequiredUserId(), "default");
+        List<String> documentIds = permissionAwareRag.accessibleIndexedDocumentIds("default");
         return Result.success(documentIds);
     }
 
@@ -227,7 +234,7 @@ public class RagController {
     @Operation(summary = "获取文档元数据", description = "获取文档的元数据信息")
     public Result<Map<String, Object>> getDocumentMetadata(
             @Parameter(description = "文档ID") @PathVariable String documentId) {
-        assertDocumentAccess(documentId);
+        permissionAwareRag.assertCanRead(documentId);
         Map<String, Object> metadata = knowledgeBase.getDocumentMetadata(documentId);
         return Result.success(metadata);
     }
@@ -239,7 +246,7 @@ public class RagController {
     @Operation(summary = "获取文档分段", description = "获取文档的分段列表")
     public Result<List<Map<String, Object>>> getDocumentSegments(
             @Parameter(description = "文档ID") @PathVariable String documentId) {
-        assertDocumentAccess(documentId);
+        permissionAwareRag.assertCanRead(documentId);
         List<Map<String, Object>> segments = knowledgeBase.getDocumentSegments(documentId);
         return Result.success(segments);
     }
@@ -251,7 +258,7 @@ public class RagController {
     @Operation(summary = "获取知识库统计", description = "获取知识库的统计信息")
     public Result<Map<String, Object>> getStatistics(
             @Parameter(description = "知识库ID") @RequestParam(defaultValue = "default") String knowledgeBaseId) {
-        Map<String, Object> statistics = knowledgeBase.getStatistics(requestUserContext.getRequiredUserId(), knowledgeBaseId);
+        Map<String, Object> statistics = permissionAwareRag.statistics(knowledgeBaseId);
         return Result.success(statistics);
     }
 
@@ -292,7 +299,7 @@ public class RagController {
     private Map<String, Object> userMetadata(String knowledgeBaseId) {
         return Map.of(
                 "userId", requestUserContext.getRequiredUserId(),
-                "knowledgeBaseId", knowledgeBaseId
+                "knowledgeBaseId", permissionAwareRag.normalizeKnowledgeBaseId(knowledgeBaseId)
         );
     }
 
@@ -300,11 +307,4 @@ public class RagController {
         return Math.max(1, Math.min(topK, 20));
     }
 
-    private void assertDocumentAccess(String documentId) {
-        Map<String, Object> metadata = knowledgeBase.getDocumentMetadata(documentId);
-        String owner = String.valueOf(metadata.getOrDefault("userId", ""));
-        if (!requestUserContext.isAdmin() && !requestUserContext.getRequiredUserId().equals(owner)) {
-            throw new SecurityException("无权访问该文档");
-        }
-    }
 }

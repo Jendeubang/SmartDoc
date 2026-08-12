@@ -17,6 +17,8 @@ import com.javaee.aiservice.conversation.ConversationManager;
 import com.javaee.aiservice.dto.FileDeleteDTO;
 import com.javaee.aiservice.internal.InternalService;
 import com.javaee.aiservice.rag.KnowledgeBase;
+import com.javaee.aiservice.rag.DocumentSegmenter;
+import com.javaee.aiservice.rag.PermissionAwareRagService;
 import com.javaee.aiservice.rag.Reranker;
 import com.javaee.aiservice.security.RequestUserContext;
 import com.javaee.aiservice.service.FileDeleteService;
@@ -336,15 +338,16 @@ class AgentExecutionServiceTest {
         InternalService internalService = mock(InternalService.class);
         RequestUserContext requestUserContext = mock(RequestUserContext.class);
         AgentReflectionService reflectionService = mock(AgentReflectionService.class);
-        KnowledgeBase knowledgeBase = mock(KnowledgeBase.class);
+        PermissionAwareRagService permissionAwareRag = mock(PermissionAwareRagService.class);
 
         when(requestUserContext.getRequiredUserId()).thenReturn("user-1");
         when(requestUserContext.getCurrentRole()).thenReturn("USER");
         when(conversationManager.createConversation("user-1")).thenReturn("conv-1");
         when(contextManager.getContext("conv-1")).thenReturn(new HashMap<>());
         when(internalService.hasPermission(any(), any())).thenReturn(true);
-        when(knowledgeBase.hybridSearchWithRerank(eq("查找合同"), eq(5), eq(Reranker.RerankStrategy.HYBRID),
-                eq("user-1"), eq("default"))).thenReturn(List.of(Map.of("id", "doc-1", "content", "合同片段")));
+        when(permissionAwareRag.hybridSearchWithRerank(eq("查找合同"), eq(5), eq("default"),
+                eq(Reranker.RerankStrategy.HYBRID), eq(DocumentSegmenter.StrategyType.CHAPTER)))
+                .thenReturn(List.of(Map.of("id", "doc-1", "documentId", "doc-1", "content", "合同片段")));
         when(chatService.callChatApiWithModelCode(any(), any()))
                 .thenReturn("""
                         [{"id":"search","description":"先检索","toolName":"rag-search","params":{"query":"查找合同"}}]
@@ -369,7 +372,7 @@ class AgentExecutionServiceTest {
         ReflectionTestUtils.setField(service, "toolRegistry", registry);
         ReflectionTestUtils.setField(service, "requestUserContext", requestUserContext);
         ReflectionTestUtils.setField(service, "reflectionService", reflectionService);
-        ReflectionTestUtils.setField(service, "knowledgeBase", knowledgeBase);
+        ReflectionTestUtils.setField(service, "permissionAwareRag", permissionAwareRag);
         ReflectionTestUtils.setField(service, "taskRegistry", new AgentTaskRegistry());
 
         AgentExecutionRequest request = new AgentExecutionRequest();

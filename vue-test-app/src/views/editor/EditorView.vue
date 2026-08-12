@@ -153,6 +153,7 @@
         <el-button circle icon="Clock" size="small" style="margin-left:10px;" @click="openHistoryDrawer"></el-button>
       </div>
       <div class="header-right">
+        <el-button v-if="!isSourcePreview" size="small" round icon="ChatDotRound" @click="openReviewDrawer">审阅</el-button>
         <el-button v-if="!isSourcePreview" type="primary" size="small" round icon="Check" @click="handleManualSave" :loading="isSaving">手动保存</el-button>
         <el-button size="small" round icon="Download" @click="handleDownload">{{ isSourcePreview ? '下载原文件' : '下载最新版' }}</el-button>
         <el-button type="primary" size="small" round icon="Share" @click="shareDialogVisible = true">协作</el-button>
@@ -265,7 +266,7 @@
               <el-empty v-else description="预览加载失败，请下载原文件查看" />
             </div>
           </div>
-          <div v-else class="paper preserve-format" contenteditable="true" v-html="docContent" @mouseup="handleTextSelection(); acquireParagraphLock()" @focusin="acquireParagraphLock" @keyup="acquireParagraphLock" @input="handleInput"></div>
+          <div v-else class="paper preserve-format" :contenteditable="canEditDocument ? 'true' : 'false'" :class="{ 'read-only-paper': !canEditDocument }" v-html="docContent" @mouseup="handleTextSelection(); acquireParagraphLock()" @focusin="acquireParagraphLock" @keyup="acquireParagraphLock" @input="handleInput"></div>
         </div>
 
         <transition name="el-zoom-in-center">
@@ -344,7 +345,25 @@
         </div>
       </aside>
 
-      <el-drawer v-model="showHistory" title="文档历史版本" size="350px" direction="rtl">
+      <el-drawer v-model="showHistory" title="文档历史版本" size="540px" direction="rtl">
+        <section v-if="versionList.length > 1" class="version-compare-panel">
+          <div class="review-section-title"><strong>版本差异</strong><span>逐行比较两个历史版本</span></div>
+          <div class="version-compare-actions">
+            <el-select v-model="diffFrom" placeholder="起始版本"><el-option v-for="ver in versionList" :key="`from-${ver.id}`" :label="`V${ver.versionNumber}`" :value="ver.versionNumber" /></el-select>
+            <span>→</span>
+            <el-select v-model="diffTo" placeholder="目标版本"><el-option v-for="ver in versionList" :key="`to-${ver.id}`" :label="`V${ver.versionNumber}`" :value="ver.versionNumber" /></el-select>
+            <el-button type="primary" :loading="diffLoading" @click="loadVersionDiff">比较</el-button>
+          </div>
+          <div v-if="versionDiff" class="diff-viewer">
+            <div class="diff-summary"><el-tag type="success">新增 {{ versionDiff.addedLines }} 行</el-tag><el-tag type="danger">删除 {{ versionDiff.removedLines }} 行</el-tag></div>
+            <div class="diff-lines">
+              <div v-for="(line, index) in versionDiff.changes" :key="index" :class="['diff-line', line.type]">
+                <span>{{ line.oldLine || '' }}</span><span>{{ line.newLine || '' }}</span><code>{{ line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' ' }} {{ line.content || ' ' }}</code>
+              </div>
+            </div>
+          </div>
+        </section>
+        <el-divider v-if="versionList.length > 1" />
         <el-timeline v-if="versionList.length > 0">
           <el-timeline-item v-for="ver in versionList" :key="ver.id" :timestamp="new Date(ver.createTime).toLocaleString()" placement="top">
             <el-card shadow="hover" class="version-card">
@@ -354,6 +373,42 @@
           </el-timeline-item>
         </el-timeline>
         <el-empty v-else description="暂无历史记录" />
+      </el-drawer>
+
+      <el-drawer v-model="reviewDrawerVisible" title="评论与建议" size="460px" direction="rtl">
+        <el-tabs v-model="reviewTab">
+          <el-tab-pane :label="`评论 ${comments.length ? '(' + comments.length + ')' : ''}`" name="comments">
+            <div class="review-composer">
+              <el-input v-model="commentContent" type="textarea" :rows="3" maxlength="4000" show-word-limit placeholder="写下评论，供协作者讨论……" />
+              <el-button type="primary" :loading="reviewSubmitting" @click="submitComment">发表评论</el-button>
+            </div>
+            <div class="review-list" v-loading="reviewLoading">
+              <article v-for="comment in comments" :key="comment.id" class="review-card">
+                <header><el-avatar :size="30">{{ String(comment.userName || comment.userId || 'U').charAt(0).toUpperCase() }}</el-avatar><div><strong>{{ comment.userName || `用户 ${comment.userId}` }}</strong><small>{{ formatReviewTime(comment.createTime) }}</small></div><el-button v-if="String(comment.userId) === String(currentUserId)" text type="danger" @click="removeComment(comment)">删除</el-button></header>
+                <p>{{ comment.content }}</p>
+              </article>
+              <el-empty v-if="!reviewLoading && !comments.length" description="还没有评论" :image-size="70" />
+            </div>
+          </el-tab-pane>
+          <el-tab-pane :label="`修订建议 ${pendingSuggestionCount ? '(' + pendingSuggestionCount + ')' : ''}`" name="suggestions">
+            <el-alert v-if="!selectedText" title="先在正文中选中要修改的文字，再打开审阅面板。" type="info" :closable="false" show-icon />
+            <div v-else class="suggestion-composer">
+              <label>原文</label><blockquote>{{ selectedText }}</blockquote>
+              <label>建议改为</label><el-input v-model="suggestionForm.suggestedText" type="textarea" :rows="4" placeholder="输入建议的新内容" />
+              <label>修改理由（可选）</label><el-input v-model="suggestionForm.reason" placeholder="例如：表述更准确" maxlength="500" />
+              <el-button type="primary" :loading="reviewSubmitting" @click="submitSuggestion">提交修订建议</el-button>
+            </div>
+            <div class="review-list" v-loading="reviewLoading">
+              <article v-for="suggestion in suggestions" :key="suggestion.id" class="review-card suggestion-card">
+                <header><div><strong>用户 {{ suggestion.userId }} 的建议</strong><small>{{ formatReviewTime(suggestion.createTime) }}</small></div><el-tag :type="suggestionStatusType(suggestion.status)">{{ suggestionStatusLabel(suggestion.status) }}</el-tag></header>
+                <div v-if="suggestion.originalText" class="suggestion-change"><del>{{ suggestion.originalText }}</del><ins>{{ suggestion.suggestedText }}</ins></div><p v-else>{{ suggestion.suggestedText }}</p>
+                <small v-if="suggestion.reason">理由：{{ suggestion.reason }}</small>
+                <div v-if="suggestion.status === 'pending' && canEditDocument" class="suggestion-actions"><el-button size="small" type="danger" plain @click="decideSuggestion(suggestion, 'rejected')">拒绝</el-button><el-button size="small" type="success" @click="decideSuggestion(suggestion, 'accepted')">接受并写入</el-button></div>
+              </article>
+              <el-empty v-if="!reviewLoading && !suggestions.length" description="还没有修订建议" :image-size="70" />
+            </div>
+          </el-tab-pane>
+        </el-tabs>
       </el-drawer>
     </div>
   </div>
@@ -421,12 +476,20 @@ const chatFileInputRef = ref(null); const chatUploadLoading = ref(false)
 const chatDocuments = ref([]); const chatDocumentsLoading = ref(false); const selectedChatDocumentIds = ref([])
 const showAiBall = ref(false); const ballStyle = reactive({ top: '0px', left: '0px' }); const selectedText = ref('')
 const showHistory = ref(false); const versionList = ref([])
+const diffFrom = ref(null); const diffTo = ref(null); const versionDiff = ref(null); const diffLoading = ref(false)
+const reviewDrawerVisible = ref(false); const reviewTab = ref('comments'); const reviewLoading = ref(false); const reviewSubmitting = ref(false)
+const comments = ref([]); const suggestions = ref([]); const commentContent = ref('')
+const suggestionForm = reactive({ suggestedText: '', reason: '' })
+const pendingSuggestionCount = computed(() => suggestions.value.filter(item => item.status === 'pending').length)
 const keywords = ref([]); const keywordsLoading = ref(false); const isRagMode = ref(false); const replaceOnWrite = ref(true)
 const { currentStep: editorProgressStep, startTracking: startProgressTracking } = useAgentProgress()
 const textStats = ref(null)
 const activeParagraphLock = ref('')
 const activeParagraphLockedByOther = ref(false)
 const paragraphLockOwner = ref('')
+const documentRole = ref('viewer')
+const canEditDocument = computed(() => ['owner', 'editor'].includes(documentRole.value))
+let paragraphLockHeartbeat = null
 // 分享协作弹窗
 const shareDialogVisible = ref(false)
 const shareLink = computed(() => `${window.location.origin}/editor/${docId}`)
@@ -443,6 +506,7 @@ const fetchShareCollaborators = async () => {
     const all = res.data || []
     const currentUser = all.find(u => String(u.userId) === String(currentUserId.value))
     isDocOwner.value = currentUser?.role === 'owner'
+    documentRole.value = currentUser?.role || 'viewer'
     const others = all.filter(u => String(u.userId) !== String(currentUserId.value))
     const enriched = await Promise.all(others.map(async (u) => {
       try {
@@ -640,6 +704,7 @@ onMounted(() => {
     fetchChatDocuments()
   }
   loadDocData().then(() => {
+    if (!isChatMode.value) fetchShareCollaborators()
     const paperElement = document.querySelector('.paper')
     if (paperElement) {
       const content = paperElement.innerHTML
@@ -1235,10 +1300,13 @@ const typeEffect = (text) => {
 // ===== 3. 手动保存与恢复逻辑 =====
 const handleManualSave = async () => {
   if (isChatMode.value) return
+  if (!canEditDocument.value) { ElMessage.warning('你当前是只读协作者，不能修改文档'); return }
   isSaving.value = true; saveStatusText.value = '正在保存...'
   try {
     const content = document.querySelector('.paper').innerHTML
     await docApi.updateDoc(docId, { title: docName.value, content: content, category: 'default' })
+    docContent.value = content
+    window.dispatchEvent(new CustomEvent('smartdoc-document-saved', { detail: { documentId: docId } }))
     saveStatusText.value = '已同步'; ElMessage.success('保存成功')
   } catch (e) { saveStatusText.value = '保存失败'; ElMessage.error('同步失败') }
   finally { isSaving.value = false }
@@ -1458,6 +1526,7 @@ const paragraphIdFromSelection = () => {
   return 'p-' + index
 }
 const releaseParagraphLock = async () => {
+  if (paragraphLockHeartbeat) { clearInterval(paragraphLockHeartbeat); paragraphLockHeartbeat = null }
   const paragraphId = activeParagraphLock.value
   activeParagraphLock.value = ''
   activeParagraphLockedByOther.value = false
@@ -1466,7 +1535,7 @@ const releaseParagraphLock = async () => {
   try { await docApi.releaseParagraphLock(docId, paragraphId) } catch { /* lock will expire */ }
 }
 const acquireParagraphLock = async () => {
-  if (isChatMode.value || isSourcePreview.value || !docId) return
+  if (isChatMode.value || isSourcePreview.value || !docId || !canEditDocument.value) return
   const paragraphId = paragraphIdFromSelection()
   if (paragraphId === activeParagraphLock.value && !activeParagraphLockedByOther.value) return
   const previous = activeParagraphLock.value
@@ -1479,22 +1548,95 @@ const acquireParagraphLock = async () => {
     activeParagraphLock.value = paragraphId
     activeParagraphLockedByOther.value = !state.mine
     paragraphLockOwner.value = state.ownerUserId || ''
-    if (!state.mine) ElMessage.warning('该段落正由协作人编辑，请稍后再试')
+    if (!state.mine) {
+      ElMessage.warning(`该段落正由用户 ${paragraphLockOwner.value || '其他协作者'} 编辑，请稍后再试`)
+    } else {
+      if (paragraphLockHeartbeat) clearInterval(paragraphLockHeartbeat)
+      paragraphLockHeartbeat = setInterval(() => {
+        if (activeParagraphLock.value === paragraphId) docApi.acquireParagraphLock(docId, paragraphId).catch(() => {})
+      }, 40000)
+    }
   } catch {
     activeParagraphLock.value = ''
     activeParagraphLockedByOther.value = false
   }
 }
 const handleInput = () => {
+  if (!canEditDocument.value) return
   if (activeParagraphLockedByOther.value) {
     const paper = document.querySelector('.paper')
     if (paper) paper.innerHTML = docContent.value
     ElMessage.warning('当前段落已被协作人锁定，内容未保存')
     return
   }
+  const paper = document.querySelector('.paper')
+  if (paper) docContent.value = paper.innerHTML
   saveStatusText.value = '修改未保存'
 }
-const openHistoryDrawer = async () => { const res = await docApi.getVersions(docId); versionList.value = res.data; showHistory.value = true }
+const openHistoryDrawer = async () => {
+  const res = await docApi.getVersions(docId)
+  versionList.value = res.data || []
+  if (versionList.value.length > 1) {
+    const ordered = [...versionList.value].sort((a, b) => a.versionNumber - b.versionNumber)
+    diffFrom.value = ordered.at(-2).versionNumber
+    diffTo.value = ordered.at(-1).versionNumber
+  }
+  versionDiff.value = null
+  showHistory.value = true
+}
+const loadVersionDiff = async () => {
+  if (diffFrom.value == null || diffTo.value == null) return ElMessage.warning('请选择两个版本')
+  if (diffFrom.value === diffTo.value) return ElMessage.warning('请选择不同版本')
+  diffLoading.value = true
+  try { const res = await docApi.getVersionDiff(docId, diffFrom.value, diffTo.value); versionDiff.value = res.data }
+  catch (e) { ElMessage.error(e?.message || '版本比较失败') }
+  finally { diffLoading.value = false }
+}
+const formatReviewTime = value => value ? new Date(value).toLocaleString() : ''
+const suggestionStatusLabel = status => ({ pending: '待处理', accepted: '已接受', rejected: '已拒绝' }[status] || status)
+const suggestionStatusType = status => ({ pending: 'warning', accepted: 'success', rejected: 'info' }[status] || 'info')
+const loadReviews = async () => {
+  reviewLoading.value = true
+  try {
+    const [commentRes, suggestionRes] = await Promise.all([docApi.getComments(docId), docApi.getSuggestions(docId)])
+    comments.value = commentRes.data || []
+    suggestions.value = suggestionRes.data || []
+  } catch (e) { ElMessage.error(e?.message || '加载审阅内容失败') }
+  finally { reviewLoading.value = false }
+}
+const openReviewDrawer = async () => {
+  suggestionForm.suggestedText = selectedText.value
+  suggestionForm.reason = ''
+  reviewDrawerVisible.value = true
+  await loadReviews()
+}
+const submitComment = async () => {
+  const content = commentContent.value.trim()
+  if (!content) return ElMessage.warning('请输入评论内容')
+  reviewSubmitting.value = true
+  try { await docApi.createComment(docId, { content }); commentContent.value = ''; await loadReviews(); ElMessage.success('评论已发表') }
+  finally { reviewSubmitting.value = false }
+}
+const removeComment = async comment => {
+  try { await ElMessageBox.confirm('确定删除这条评论吗？', '删除评论', { type: 'warning' }); await docApi.deleteComment(docId, comment.id); await loadReviews() } catch {}
+}
+const submitSuggestion = async () => {
+  if (!selectedText.value) return ElMessage.warning('请先选中原文')
+  if (!suggestionForm.suggestedText.trim()) return ElMessage.warning('请输入建议内容')
+  reviewSubmitting.value = true
+  try {
+    await docApi.createSuggestion(docId, { originalText: selectedText.value, suggestedText: suggestionForm.suggestedText.trim(), reason: suggestionForm.reason.trim() })
+    suggestionForm.suggestedText = ''; suggestionForm.reason = ''; await loadReviews(); ElMessage.success('修订建议已提交')
+  } finally { reviewSubmitting.value = false }
+}
+const decideSuggestion = async (suggestion, decision) => {
+  try {
+    if (decision === 'accepted') await ElMessageBox.confirm('接受后将立即写入正文并生成历史版本，是否继续？', '接受建议', { type: 'warning' })
+    await docApi.decideSuggestion(docId, suggestion.id, { decision })
+    await Promise.all([loadReviews(), loadDocData()])
+    ElMessage.success(decision === 'accepted' ? '建议已接受并写入正文' : '建议已拒绝')
+  } catch (e) { if (e !== 'cancel' && e !== 'close') ElMessage.error(e?.message || '处理建议失败') }
+}
 const startNewChat = () => { chatHistory.value = []; chatTitle.value = '新对话' }
 const scrollToBottom = () => { nextTick(() => {
   const c = isChatMode.value ? document.querySelector('.chat-scroll-area') : document.querySelector('.chat-area'); if(c) c.scrollTop = c.scrollHeight
@@ -1611,6 +1753,7 @@ const scrollToBottom = () => { nextTick(() => {
 
 /* ==================== 模式 B：文档阅读模式样式 (保持不变) ==================== */
 .editor-page { height: 100vh; display: flex; flex-direction: column; background: #f5f6f7; }
+.paper.read-only-paper { background: #fafafa; cursor: default; }
 .toolbar { height: 56px; background: #fff; border-bottom: 1px solid #dee0e3; display: flex; align-items: center; padding: 0 24px; justify-content: space-between; flex-shrink: 0;}
 .workspace { flex: 1; display: flex; overflow: hidden; position: relative; }
 .editor-main { flex: 1; overflow-y: auto; display: flex; justify-content: center; padding: 50px 0; background: #f0f2f5; position: relative; }
@@ -1831,6 +1974,7 @@ const scrollToBottom = () => { nextTick(() => {
 .doc-title { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--editor-ink); font-size: 15px; font-weight: 700; }
 .save-status { margin-left: 12px; padding: 4px 9px; border-radius: 999px; background: #f1edf7; color: var(--editor-lavender-deep); font-size: 12px; }
 .header-right { display: flex; align-items: center; gap: 8px; }
+.version-compare-panel{padding:14px;border:1px solid #e7dfe9;border-radius:14px;background:#faf8fb}.review-section-title{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px}.review-section-title span{color:#93899a;font-size:12px}.version-compare-actions{display:grid;grid-template-columns:1fr auto 1fr auto;align-items:center;gap:8px}.diff-summary{display:flex;gap:8px;margin:14px 0 10px}.diff-lines{max-height:320px;overflow:auto;border:1px solid #e9e3ea;border-radius:9px;background:#fff;font-family:Consolas,monospace}.diff-line{display:grid;grid-template-columns:38px 38px minmax(0,1fr);min-height:25px;border-bottom:1px solid #f1edf2;font-size:12px}.diff-line>span{padding:4px 6px;text-align:right;color:#9a929d;background:#f7f5f7}.diff-line code{padding:4px 8px;white-space:pre-wrap;word-break:break-word}.diff-line.added{background:#edf8f0}.diff-line.removed{background:#fff0f1}.diff-line.added code{color:#276e3b}.diff-line.removed code{color:#9b3440}.review-composer,.suggestion-composer{display:flex;flex-direction:column;align-items:flex-end;gap:10px;padding:14px;border:1px solid #e8e1e9;border-radius:14px;background:#faf8fb}.suggestion-composer{align-items:stretch}.suggestion-composer label{font-size:12px;font-weight:700;color:#766b7c}.suggestion-composer blockquote{max-height:110px;overflow:auto;margin:0;padding:10px 12px;border-left:3px solid #a99aba;background:#fff;color:#706775;white-space:pre-wrap}.suggestion-composer .el-button{align-self:flex-end}.review-list{display:flex;flex-direction:column;gap:11px;margin-top:14px}.review-card{padding:14px;border:1px solid #ebe5ec;border-radius:13px;background:#fff}.review-card header{display:flex;align-items:center;gap:9px}.review-card header>div{display:flex;flex:1;flex-direction:column;gap:2px}.review-card header small,.review-card>small{color:#968d9a}.review-card p{margin:12px 0 0;line-height:1.7;white-space:pre-wrap}.suggestion-change{display:flex;flex-direction:column;gap:7px;margin:12px 0}.suggestion-change del,.suggestion-change ins{padding:9px;border-radius:8px;white-space:pre-wrap;text-decoration:none}.suggestion-change del{background:#fff0f1;color:#994450}.suggestion-change ins{background:#edf8f0;color:#347249}.suggestion-change del:before{content:'− ';font-weight:700}.suggestion-change ins:before{content:'+ ';font-weight:700}.suggestion-actions{display:flex;justify-content:flex-end;margin-top:12px}
 .editor-main { padding: 42px clamp(20px, 4vw, 64px) 64px; background: #f5f4f0; }
 .paper { width: min(780px, 100%); min-height: 1120px; padding: 84px 104px; border: 1px solid rgba(232, 224, 232, .85); border-radius: 6px; box-shadow: 0 18px 44px rgba(71, 61, 80, .11); color: var(--editor-ink); font-family: "Microsoft YaHei", "PingFang SC", sans-serif; line-height: 1.92; }
 .paper:focus { box-shadow: 0 18px 44px rgba(71, 61, 80, .11), 0 0 0 4px rgba(172, 160, 206, .2); }

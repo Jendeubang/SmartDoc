@@ -3,6 +3,11 @@ package com.javaee.documentservice.controller;
 import com.javaee.common.model.Result;
 import com.javaee.documentservice.dto.CommentCreateDTO;
 import com.javaee.documentservice.service.CommentService;
+import com.javaee.documentservice.security.RequestUserContext;
+import com.javaee.documentservice.mapper.DocumentMapper;
+import com.javaee.documentservice.service.DocumentAccessService;
+import com.javaee.documentservice.entity.Document;
+import com.javaee.common.exception.BusinessException;
 import com.javaee.documentservice.vo.CommentVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -19,13 +24,21 @@ public class CommentController {
 
     @Autowired
     private CommentService commentService;
+    @Autowired private RequestUserContext requestUserContext;
+    @Autowired private DocumentMapper documentMapper;
+    @Autowired private DocumentAccessService documentAccessService;
 
     @PostMapping
     @Operation(summary = "添加评论", description = "为文档添加评论")
     public Result<CommentVO> createComment(
             @Parameter(description = "文档ID") @PathVariable String documentId,
             @RequestBody CommentCreateDTO dto) {
-        Long userId = 1L;
+        Long userId = requestUserContext.getRequiredUserId();
+        assertRead(documentId, userId);
+        if (dto == null || dto.getContent() == null || dto.getContent().trim().isEmpty()) {
+            throw new BusinessException("评论内容不能为空");
+        }
+        if (dto.getContent().length() > 4000) throw new BusinessException("评论内容不能超过 4000 字");
         dto.setDocumentId(documentId);
         CommentVO vo = commentService.createComment(dto, userId);
         return Result.success(vo);
@@ -35,6 +48,7 @@ public class CommentController {
     @Operation(summary = "获取评论列表", description = "获取文档的所有评论")
     public Result<List<CommentVO>> getComments(
             @Parameter(description = "文档ID") @PathVariable String documentId) {
+        assertRead(documentId, requestUserContext.getRequiredUserId());
         List<CommentVO> comments = commentService.getCommentsByDocumentId(documentId);
         return Result.success(comments);
     }
@@ -44,6 +58,7 @@ public class CommentController {
     public Result<CommentVO> getComment(
             @Parameter(description = "文档ID") @PathVariable String documentId,
             @Parameter(description = "评论ID") @PathVariable String commentId) {
+        assertRead(documentId, requestUserContext.getRequiredUserId());
         CommentVO vo = commentService.getCommentById(commentId);
         return Result.success(vo);
     }
@@ -53,7 +68,8 @@ public class CommentController {
     public Result<Void> deleteComment(
             @Parameter(description = "文档ID") @PathVariable String documentId,
             @Parameter(description = "评论ID") @PathVariable String commentId) {
-        Long userId = 1L;
+        Long userId = requestUserContext.getRequiredUserId();
+        assertRead(documentId, userId);
         commentService.deleteComment(commentId, userId);
         return Result.success();
     }
@@ -63,7 +79,14 @@ public class CommentController {
     public Result<List<CommentVO>> getReplies(
             @Parameter(description = "文档ID") @PathVariable String documentId,
             @Parameter(description = "评论ID") @PathVariable String commentId) {
+        assertRead(documentId, requestUserContext.getRequiredUserId());
         List<CommentVO> replies = commentService.getReplies(commentId);
         return Result.success(replies);
+    }
+
+    private void assertRead(String documentId, Long userId) {
+        Document document = documentMapper.selectById(documentId);
+        if (document == null) throw new BusinessException("文档不存在");
+        documentAccessService.assertCanRead(document, userId);
     }
 }

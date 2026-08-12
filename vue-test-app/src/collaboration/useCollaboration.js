@@ -29,6 +29,7 @@ export function useCollaboration(documentId, userId, userName) {
   let stompClient = null
   let subscriptions = []
   let paperElement = null
+  let savedEventHandler = null
 
   function cleanupSubscriptions() {
     subscriptions.forEach(s => { try { s.unsubscribe() } catch (e) {} })
@@ -116,6 +117,9 @@ export function useCollaboration(documentId, userId, userName) {
     return new Promise((resolve, reject) => {
       stompClient = new Client({
         webSocketFactory: () => new SockJS('/ws/collaborate'),
+        connectHeaders: {
+          Authorization: `Bearer ${localStorage.getItem('accessToken') || ''}`
+        },
         reconnectDelay: 5000,
         heartbeatIncoming: 10000,
         heartbeatOutgoing: 10000,
@@ -165,6 +169,17 @@ export function useCollaboration(documentId, userId, userName) {
     try {
       await connect()
       await updateEditorContent() // 首次加入拉取最新内容
+      savedEventHandler = event => {
+        if (String(event.detail?.documentId) !== String(documentId)) return
+        send('/app/collaborate/edit', {
+          documentId,
+          type: 'INSERT',
+          from: 0,
+          to: 0,
+          text: ''
+        })
+      }
+      window.addEventListener('smartdoc-document-saved', savedEventHandler)
       isCollaborating.value = true
       lastSyncTime.value = Date.now()
     } catch (e) {
@@ -175,6 +190,10 @@ export function useCollaboration(documentId, userId, userName) {
   }
 
   function stopCollaboration() {
+    if (savedEventHandler) {
+      window.removeEventListener('smartdoc-document-saved', savedEventHandler)
+      savedEventHandler = null
+    }
     disconnect()
   }
 

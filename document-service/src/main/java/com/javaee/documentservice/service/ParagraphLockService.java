@@ -47,6 +47,15 @@ public class ParagraphLockService {
         return result;
     }
 
+    public void releaseAllByUser(String documentId, Long userId) {
+        Set<String> keys = redisTemplate.keys(PREFIX + documentId + ":*");
+        if (keys == null) return;
+        for (String key : keys) {
+            Object holder = redisTemplate.opsForValue().get(key);
+            if (String.valueOf(userId).equals(String.valueOf(holder))) redisTemplate.delete(key);
+        }
+    }
+
     private Map<String, Object> lockState(String paragraphId, Object holder, boolean acquired, boolean mine) {
         Map<String, Object> state = new LinkedHashMap<>();
         state.put("paragraphId", paragraphId);

@@ -2,6 +2,10 @@ package com.javaee.documentservice.controller;
 
 import com.javaee.common.utils.JwtUtils;
 import com.javaee.documentservice.collaborate.*;
+import com.javaee.documentservice.config.WebSocketAuthConfig.CollaborationPrincipal;
+import com.javaee.documentservice.entity.Document;
+import com.javaee.documentservice.mapper.DocumentMapper;
+import com.javaee.documentservice.service.DocumentAccessService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,10 +39,17 @@ public class CollaborateController {
     @Autowired
     private DocumentSnapshotService snapshotService;
 
+    @Autowired
+    private DocumentMapper documentMapper;
+
+    @Autowired
+    private DocumentAccessService documentAccessService;
+
     @MessageMapping("/collaborate/join")
     public void joinDocument(@Payload DocumentJoinMessage joinMessage, Principal principal) {
         String userId = extractUserId(principal);
         String userName = extractUserName(principal);
+        assertCanRead(joinMessage.getDocumentId(), userId);
 
         joinMessage.setUserId(userId);
         joinMessage.setUserName(userName);
@@ -64,6 +75,7 @@ public class CollaborateController {
     public void leaveDocument(@Payload DocumentJoinMessage leaveMessage, Principal principal) {
         String userId = extractUserId(principal);
         String userName = extractUserName(principal);
+        assertCanRead(leaveMessage.getDocumentId(), userId);
 
         leaveMessage.setUserId(userId);
         leaveMessage.setUserName(userName);
@@ -81,6 +93,7 @@ public class CollaborateController {
     public void handleEdit(@Payload EditOperation operation, Principal principal) {
         String userId = extractUserId(principal);
         String userName = extractUserName(principal);
+        assertCanWrite(operation.getDocumentId(), userId);
 
         operation.setUserId(userId);
         operation.setUserName(userName);
@@ -102,6 +115,7 @@ public class CollaborateController {
     public void handleCursor(@Payload CursorPosition cursor, Principal principal) {
         String userId = extractUserId(principal);
         String userName = extractUserName(principal);
+        assertCanRead(cursor.getDocumentId(), userId);
 
         cursor.setUserId(userId);
         cursor.setUserName(userName);
@@ -117,6 +131,7 @@ public class CollaborateController {
     public void handleSync(@Payload Map<String, Object> syncRequest, Principal principal) {
         String userId = extractUserId(principal);
         String documentId = (String) syncRequest.get("documentId");
+        assertCanRead(documentId, userId);
         long sinceClock = syncRequest.get("sinceClock") != null
                 ? ((Number) syncRequest.get("sinceClock")).longValue() : 0;
 
@@ -131,16 +146,31 @@ public class CollaborateController {
     }
 
     private String extractUserId(Principal principal) {
-        if (principal != null) {
-            return principal.getName();
-        }
-        return "anonymous";
+        if (principal == null) throw new IllegalArgumentException("WebSocket authentication required");
+        return principal.getName();
     }
 
     private String extractUserName(Principal principal) {
-        if (principal != null) {
-            return principal.getName();
+        if (principal instanceof CollaborationPrincipal collaborationPrincipal) {
+            return collaborationPrincipal.username() == null ? collaborationPrincipal.name() : collaborationPrincipal.username();
         }
-        return "anonymous";
+        return extractUserId(principal);
+    }
+
+    private void assertCanRead(String documentId, String userId) {
+        Document document = requiredDocument(documentId);
+        documentAccessService.assertCanRead(document, Long.valueOf(userId));
+    }
+
+    private void assertCanWrite(String documentId, String userId) {
+        Document document = requiredDocument(documentId);
+        documentAccessService.assertCanWrite(document, Long.valueOf(userId));
+    }
+
+    private Document requiredDocument(String documentId) {
+        if (documentId == null || documentId.isBlank()) throw new IllegalArgumentException("Document id is required");
+        Document document = documentMapper.selectById(documentId);
+        if (document == null) throw new IllegalArgumentException("Document does not exist");
+        return document;
     }
 }

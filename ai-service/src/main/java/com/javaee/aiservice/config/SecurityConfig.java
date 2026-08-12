@@ -36,8 +36,6 @@ public class SecurityConfig {
                     "/index.html",
                     "/agent-workbench.html",
                     "/static/**",
-                    "/api/ai/agent/**",
-                    "/api/ai/rag/**",
                     "/api/ai/correct",
                     "/api/ai/models",
                     "/api/ai/aiops/**",

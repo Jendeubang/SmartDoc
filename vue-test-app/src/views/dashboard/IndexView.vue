@@ -13,6 +13,7 @@
             <div class="nav-item" :class="{ active: showDocLibrary }" @click="goToDocLibrary"><el-icon><FolderOpened /></el-icon> 云端文档库</div>
             <a class="nav-item ai-chat-nav" href="/editor/chat-mode"><el-icon><ChatLineSquare /></el-icon> SmartDoc AI 对话</a>
             <a class="nav-item toolbox-nav" href="/toolbox"><el-icon><MagicStick /></el-icon> 文档处理工具箱</a>
+            <a class="nav-item enterprise-nav" href="/enterprise"><el-icon><OfficeBuilding /></el-icon> 企业空间</a>
             <div v-if="isAdminUser" class="nav-item aiops-nav" @click="goToAIOps">
               <el-icon><Cpu /></el-icon> AI Ops 运维中心
             </div>
@@ -180,6 +181,7 @@
                     <Document v-else />
                   </el-icon>
                   <span class="doc-category-badge">{{ doc.category || '未分类' }}</span>
+                  <span v-if="!doc.owned" class="doc-shared-badge">协作</span>
                   <el-icon v-if="doc.favorite" class="doc-favorite-badge" aria-label="已收藏"><StarFilled /></el-icon>
                   <span class="file-kind">{{ doc.extension || 'DOC' }}</span>
                 </div>
@@ -195,8 +197,9 @@
                           <el-dropdown-item command="favorite" icon="Star">{{ doc.favorite ? '取消收藏' : '收藏文档' }}</el-dropdown-item>
                           <el-dropdown-item command="rename" icon="EditPen">重命名</el-dropdown-item>
                           <el-dropdown-item command="category" icon="Folder">移动分类</el-dropdown-item>
+                          <el-dropdown-item command="collaborate" icon="UserFilled">协作管理</el-dropdown-item>
                           <el-dropdown-item command="download" icon="Download">下载原文件</el-dropdown-item>
-                          <el-dropdown-item command="delete" icon="Delete" divided style="color: #F56C6C">移入回收站</el-dropdown-item>
+                          <el-dropdown-item v-if="doc.owned" command="delete" icon="Delete" divided style="color: #F56C6C">移入回收站</el-dropdown-item>
                         </el-dropdown-menu>
                         <el-dropdown-menu v-else>
                           <el-dropdown-item command="restore" icon="RefreshLeft">恢复文档</el-dropdown-item>
@@ -257,6 +260,7 @@
                     <Document v-else />
                   </el-icon>
                   <span class="doc-category-badge">{{ doc.category || '未分类' }}</span>
+                  <span v-if="!doc.owned" class="doc-shared-badge">协作</span>
                   <el-icon v-if="doc.favorite" class="doc-favorite-badge" aria-label="已收藏"><StarFilled /></el-icon>
                   <span class="file-kind">{{ doc.extension || 'DOC' }}</span>
                 </div>
@@ -274,8 +278,9 @@
                           <el-dropdown-item command="favorite" icon="Star">{{ doc.favorite ? '取消收藏' : '收藏文档' }}</el-dropdown-item>
                           <el-dropdown-item command="rename" icon="EditPen">重命名</el-dropdown-item>
                           <el-dropdown-item command="category" icon="Folder">移动分类</el-dropdown-item>
+                          <el-dropdown-item command="collaborate" icon="UserFilled">协作管理</el-dropdown-item>
                           <el-dropdown-item command="download" icon="Download">下载原文件</el-dropdown-item>
-                          <el-dropdown-item command="delete" icon="Delete" divided style="color: #F56C6C">移入回收站</el-dropdown-item>
+                          <el-dropdown-item v-if="doc.owned" command="delete" icon="Delete" divided style="color: #F56C6C">移入回收站</el-dropdown-item>
                         </el-dropdown-menu>
                         <el-dropdown-menu v-else>
                           <el-dropdown-item command="restore" icon="RefreshLeft">恢复文档</el-dropdown-item>
@@ -331,6 +336,41 @@
         <el-button @click="newDocDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="newDocSaving" @click="saveNewDocument">生成并保存</el-button>
       </template>
+    </el-dialog>
+    <el-dialog v-model="collaborationDialogVisible" title="文档协作管理" width="560px" @closed="resetCollaborationDialog">
+      <div v-loading="collaborationLoading" class="collaboration-manager">
+        <div class="collaboration-document">
+          <div><small>当前文档</small><strong>{{ collaborationDocument?.name }}</strong></div>
+          <el-tag :type="collaborationIsOwner ? 'success' : 'info'">{{ collaborationIsOwner ? '文档所有者' : collaborationCurrentRole }}</el-tag>
+        </div>
+        <el-alert title="只有文档所有者可以添加或移除协作者；编辑者可共同修改，查看者为只读。" type="info" :closable="false" show-icon />
+        <div v-if="collaborationIsOwner" class="collaboration-grant-form">
+          <el-input v-model="collaborationUserId" clearable placeholder="输入协作者用户 ID" @keyup.enter="grantDashboardCollaborator">
+            <template #prepend>用户 ID</template>
+          </el-input>
+          <el-select v-model="collaborationRole" style="width: 110px">
+            <el-option label="可编辑" value="editor" />
+            <el-option label="只读" value="viewer" />
+          </el-select>
+          <el-select v-model="collaborationExpiry" style="width: 110px">
+            <el-option label="7 天" :value="168" />
+            <el-option label="30 天" :value="720" />
+            <el-option label="永久" :value="0" />
+          </el-select>
+          <el-button type="primary" :loading="collaborationGrantLoading" @click="grantDashboardCollaborator">添加</el-button>
+        </div>
+        <div class="collaboration-member-list">
+          <div class="collaboration-list-title">协作成员（{{ collaborationMembers.length }}）</div>
+          <div v-for="member in collaborationMembers" :key="member.userId" class="collaboration-member">
+            <el-avatar :size="34">{{ String(member.userName || member.userId).charAt(0).toUpperCase() }}</el-avatar>
+            <div class="collaboration-member-info"><strong>{{ member.userName || `用户 ${member.userId}` }}</strong><small>ID：{{ member.userId }}<template v-if="member.expiresAt"> · 有效至 {{ new Date(member.expiresAt).toLocaleString() }}</template></small></div>
+            <el-tag size="small" :type="member.role === 'owner' ? 'success' : member.role === 'editor' ? 'primary' : 'info'">{{ collaborationRoleLabel(member.role) }}</el-tag>
+            <el-button v-if="collaborationIsOwner && member.role !== 'owner'" text type="danger" @click="revokeDashboardCollaborator(member.userId)">移除</el-button>
+          </div>
+          <el-empty v-if="!collaborationMembers.length && !collaborationLoading" description="暂无协作成员" :image-size="64" />
+        </div>
+      </div>
+      <template #footer><el-button @click="collaborationDialogVisible = false">完成</el-button><el-button type="primary" @click="openCollaborationDocument">打开文档协作</el-button></template>
     </el-dialog>
     <!-- PPT 生成器弹窗 -->
     <el-dialog v-model="categoryMoveDialogVisible" title="移动分类" width="460px" @closed="resetCategoryMoveForm">
@@ -462,6 +502,13 @@ const router = useRouter()
 const loading = ref(false)
 const showDocLibrary = ref(false)
 const currentUserName = ref('User')
+const userAvatarUrl = ref('')
+const profileDialogVisible = ref(false)
+const profileSaving = ref(false)
+const profileForm = ref({ nickname: '', signature: '', avatarFileId: '' })
+const avatarFile = ref(null)
+const avatarInputRef = ref(null)
+const profileAvatarPreview = ref('')
 const docList = ref([])
 const libraryScope = ref('all')
 const UNCATEGORIZED_CATEGORY = '__uncategorized__'
@@ -488,6 +535,16 @@ const pptLoading = ref(false)
 const newDocDialogVisible = ref(false)
 const newDocSaving = ref(false)
 const newDocForm = ref({ title: '', content: '', format: 'txt', category: '' })
+const collaborationDialogVisible = ref(false)
+const collaborationLoading = ref(false)
+const collaborationGrantLoading = ref(false)
+const collaborationDocument = ref(null)
+const collaborationMembers = ref([])
+const collaborationUserId = ref('')
+const collaborationRole = ref('editor')
+const collaborationExpiry = ref(168)
+const collaborationIsOwner = ref(false)
+const collaborationCurrentRole = ref('viewer')
 const pptForm = ref({
   title: 'DocAI 项目',
   theme: 'tokyo-night',
@@ -498,6 +555,63 @@ const pptForm = ref({
 const isAdminUser = ref(isAdmin())
 
 const getCurrentUserId = () => localStorage.getItem('userId')
+const collaborationRoleLabel = role => ({ owner: '所有者', editor: '可编辑', viewer: '只读' }[role] || role)
+const enrichCollaborators = async members => Promise.all(members.map(async member => {
+  try {
+    const user = await userApi.getUserInfo(member.userId)
+    return { ...member, userName: user?.data?.username || `用户 ${member.userId}` }
+  } catch { return { ...member, userName: `用户 ${member.userId}` } }
+}))
+const loadDashboardCollaborators = async () => {
+  if (!collaborationDocument.value?.id) return
+  collaborationLoading.value = true
+  try {
+    const response = await docApi.getCollaborators(collaborationDocument.value.id)
+    const members = response?.data || []
+    const mine = members.find(member => String(member.userId) === String(getCurrentUserId()))
+    collaborationCurrentRole.value = mine?.role || 'viewer'
+    collaborationIsOwner.value = mine?.role === 'owner'
+    collaborationMembers.value = await enrichCollaborators(members)
+  } finally { collaborationLoading.value = false }
+}
+const openCollaborationManager = async doc => {
+  collaborationDocument.value = doc
+  collaborationDialogVisible.value = true
+  await loadDashboardCollaborators()
+}
+const resetCollaborationDialog = () => {
+  collaborationDocument.value = null
+  collaborationMembers.value = []
+  collaborationUserId.value = ''
+  collaborationRole.value = 'editor'
+  collaborationExpiry.value = 168
+}
+const grantDashboardCollaborator = async () => {
+  const userId = collaborationUserId.value.trim()
+  if (!/^\d+$/.test(userId)) { ElMessage.warning('请输入正确的数字用户 ID'); return }
+  if (String(userId) === String(getCurrentUserId())) { ElMessage.warning('不能添加自己为协作者'); return }
+  collaborationGrantLoading.value = true
+  try {
+    await docApi.grantCollaborator(collaborationDocument.value.id, userId, collaborationRole.value, collaborationExpiry.value)
+    collaborationUserId.value = ''
+    ElMessage.success('协作者添加成功')
+    await loadDashboardCollaborators()
+  } finally { collaborationGrantLoading.value = false }
+}
+const revokeDashboardCollaborator = async userId => {
+  try {
+    await ElMessageBox.confirm(`确定移除用户 ${userId} 的协作权限吗？`, '移除协作者', { type: 'warning' })
+    await docApi.revokeCollaborator(collaborationDocument.value.id, userId)
+    ElMessage.success('已移除协作者')
+    await loadDashboardCollaborators()
+  } catch { /* cancelled */ }
+}
+const openCollaborationDocument = () => {
+  if (!collaborationDocument.value) return
+  const doc = collaborationDocument.value
+  collaborationDialogVisible.value = false
+  goToEditor(doc.id, doc.name)
+}
 
 // 计算当前选中的模型名字（用于弹窗提示）
 const currentModelName = computed(() => {
@@ -543,8 +657,29 @@ const fetchUser = async () => {
   } catch (e) { currentUserName.value = 'User' }
 }
 const handleUserProfileStorage = event => {
-  if (event.key === STORAGE_KEYS.USER_INFO || event.key === 'smartdoc_profile_updated_at') fetchUser()
+  if (event.key === STORAGE_KEYS.USER_INFO) {
+    fetchUser()
+    return
+  }
+  if (event.key === 'smartdoc_profile_updated_at') {
+    try {
+      const profile = JSON.parse(event.newValue || '{}')
+      if (profile.username) currentUserName.value = profile.username
+      if (Object.prototype.hasOwnProperty.call(profile, 'avatarFileId')) loadAvatar(profile.avatarFileId)
+    } catch {
+      fetchUser()
+    }
+  }
 }
+const applyProfileUpdate = profile => {
+  if (profile?.username) currentUserName.value = profile.username
+  if (profile && Object.prototype.hasOwnProperty.call(profile, 'avatarFileId')) {
+    loadAvatar(profile.avatarFileId)
+  } else {
+    fetchUser()
+  }
+}
+const handleProfileUpdatedEvent = event => applyProfileUpdate(event.detail)
 const handleProfileVisibility = () => {
   if (document.visibilityState === 'visible') fetchUser()
 }
@@ -596,6 +731,8 @@ const extensionOf = name => (String(name || '').match(/\.([^.]+)$/)?.[1] || '').
 const kindOf = name => /\.(jpe?g|png|gif|webp)$/i.test(name || '') ? 'image' : /\.pdf$/i.test(name || '') ? 'pdf' : 'document'
 const mapDocument = item => ({
   id: item.id,
+  ownerUserId: item.userId,
+  owned: String(item.userId) === String(getCurrentUserId()),
   fileId: item.fileId,
   name: item.title || '未命名文档',
   time: item.createTime ? new Date(item.createTime).toLocaleDateString() : '未知',
@@ -663,6 +800,7 @@ const changeLibraryScope = async scope => {
 onBeforeUnmount(() => {
   window.removeEventListener('storage', handleUserProfileStorage)
   window.removeEventListener('focus', fetchUser)
+  window.removeEventListener('smartdoc-profile-updated', handleProfileUpdatedEvent)
   document.removeEventListener('visibilitychange', handleProfileVisibility)
   profileSyncChannel?.close()
   releaseThumbnails()
@@ -705,11 +843,12 @@ const fetchModels = async () => {
 onMounted(() => {
   window.addEventListener('storage', handleUserProfileStorage)
   window.addEventListener('focus', fetchUser)
+  window.addEventListener('smartdoc-profile-updated', handleProfileUpdatedEvent)
   document.addEventListener('visibilitychange', handleProfileVisibility)
   if (typeof BroadcastChannel !== 'undefined') {
     profileSyncChannel = new BroadcastChannel('smartdoc-profile-sync')
     profileSyncChannel.onmessage = event => {
-      if (event.data?.type === 'profile-updated') fetchUser()
+      if (event.data?.type === 'profile-updated') applyProfileUpdate(event.data)
     }
   }
   fetchUser()
@@ -1017,6 +1156,10 @@ const downloadBlob = (blob, fileName) => {
 
 // 文档卡片操作
 const handleCardCommand = async (cmd, doc) => {
+  if (cmd === 'collaborate') {
+    await openCollaborationManager(doc)
+    return
+  }
   if (cmd === 'favorite') {
     const tags = new Set(doc.tags || [])
     ;[...tags].filter(tag => String(tag).startsWith("_favorite_at:")).forEach(tag => tags.delete(tag))
@@ -1265,6 +1408,17 @@ const goToAIOps = () => {
 .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 24px; }
 .doc-card { background: #fff; border-radius: 12px; border: 1px solid #ebeef5; overflow: hidden; transition: 0.3s; }
 .doc-card:hover { transform: translateY(-4px); box-shadow: 0 12px 24px rgba(31, 35, 41, 0.08); }
+.doc-shared-badge { position: absolute; top: 12px; left: 88px; z-index: 2; padding: 3px 8px; border-radius: 999px; background: rgba(255,255,255,.9); color: #77668d; font-size: 11px; font-weight: 700; box-shadow: 0 2px 7px rgba(60,45,70,.1); }
+.collaboration-manager { min-height: 180px; }
+.collaboration-document { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; padding: 14px 16px; border-radius: 12px; background: #f4f0f7; }
+.collaboration-document > div { display: flex; flex-direction: column; gap: 4px; }
+.collaboration-document small, .collaboration-member-info small { color: #8d8293; }
+.collaboration-grant-form { display: flex; align-items: center; gap: 8px; margin: 18px 0; }
+.collaboration-grant-form .el-input { flex: 1; }
+.collaboration-member-list { margin-top: 18px; }
+.collaboration-list-title { margin-bottom: 8px; font-size: 13px; font-weight: 700; color: #675d6d; }
+.collaboration-member { display: flex; align-items: center; gap: 10px; padding: 10px 4px; border-bottom: 1px solid #eee8f0; }
+.collaboration-member-info { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
 .card-cover { height: 130px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; }
 .document-thumbnail { width: 100%; height: 100%; object-fit: cover; transition: transform .25s ease; }
 .doc-card:hover .document-thumbnail { transform: scale(1.04); }

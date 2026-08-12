@@ -4,6 +4,11 @@ import com.javaee.common.model.Result;
 import com.javaee.documentservice.dto.AnnotationCreateDTO;
 import com.javaee.documentservice.service.AnnotationService;
 import com.javaee.documentservice.vo.AnnotationVO;
+import com.javaee.documentservice.security.RequestUserContext;
+import com.javaee.documentservice.mapper.DocumentMapper;
+import com.javaee.documentservice.service.DocumentAccessService;
+import com.javaee.documentservice.entity.Document;
+import com.javaee.common.exception.BusinessException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -19,13 +24,16 @@ public class AnnotationController {
 
     @Autowired
     private AnnotationService annotationService;
+    @Autowired private RequestUserContext requestUserContext;
+    @Autowired private DocumentMapper documentMapper;
+    @Autowired private DocumentAccessService documentAccessService;
 
     @PostMapping
     @Operation(summary = "添加批注", description = "为文档添加批注")
     public Result<AnnotationVO> createAnnotation(
             @Parameter(description = "文档ID") @PathVariable String documentId,
             @RequestBody AnnotationCreateDTO dto) {
-        Long userId = 1L;
+        Long userId = requestUserContext.getRequiredUserId(); assertRead(documentId, userId);
         dto.setDocumentId(documentId);
         AnnotationVO vo = annotationService.createAnnotation(dto, userId);
         return Result.success(vo);
@@ -35,6 +43,7 @@ public class AnnotationController {
     @Operation(summary = "获取批注列表", description = "获取文档的所有批注")
     public Result<List<AnnotationVO>> getAnnotations(
             @Parameter(description = "文档ID") @PathVariable String documentId) {
+        assertRead(documentId, requestUserContext.getRequiredUserId());
         List<AnnotationVO> annotations = annotationService.getAnnotationsByDocumentId(documentId);
         return Result.success(annotations);
     }
@@ -44,6 +53,7 @@ public class AnnotationController {
     public Result<AnnotationVO> getAnnotation(
             @Parameter(description = "文档ID") @PathVariable String documentId,
             @Parameter(description = "批注ID") @PathVariable String annotationId) {
+        assertRead(documentId, requestUserContext.getRequiredUserId());
         AnnotationVO vo = annotationService.getAnnotationById(annotationId);
         return Result.success(vo);
     }
@@ -54,7 +64,7 @@ public class AnnotationController {
             @Parameter(description = "文档ID") @PathVariable String documentId,
             @Parameter(description = "批注ID") @PathVariable String annotationId,
             @RequestBody AnnotationCreateDTO dto) {
-        Long userId = 1L;
+        Long userId = requestUserContext.getRequiredUserId(); assertRead(documentId, userId);
         annotationService.updateAnnotation(annotationId, dto, userId);
         return Result.success();
     }
@@ -64,7 +74,7 @@ public class AnnotationController {
     public Result<Void> deleteAnnotation(
             @Parameter(description = "文档ID") @PathVariable String documentId,
             @Parameter(description = "批注ID") @PathVariable String annotationId) {
-        Long userId = 1L;
+        Long userId = requestUserContext.getRequiredUserId(); assertRead(documentId, userId);
         annotationService.deleteAnnotation(annotationId, userId);
         return Result.success();
     }
@@ -74,7 +84,14 @@ public class AnnotationController {
     public Result<List<AnnotationVO>> getAnnotationsByLine(
             @Parameter(description = "文档ID") @PathVariable String documentId,
             @Parameter(description = "行号") @PathVariable Integer lineNumber) {
+        assertRead(documentId, requestUserContext.getRequiredUserId());
         List<AnnotationVO> annotations = annotationService.getAnnotationsByLineNumber(documentId, lineNumber);
         return Result.success(annotations);
+    }
+
+    private void assertRead(String documentId, Long userId) {
+        Document document = documentMapper.selectById(documentId);
+        if (document == null) throw new BusinessException("文档不存在");
+        documentAccessService.assertCanRead(document, userId);
     }
 }

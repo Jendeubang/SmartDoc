@@ -7,6 +7,7 @@ import com.javaee.documentservice.entity.DocumentComment;
 import com.javaee.documentservice.mapper.DocumentCommentMapper;
 import com.javaee.documentservice.mapper.DocumentMapper;
 import com.javaee.documentservice.service.CommentService;
+import com.javaee.documentservice.service.DocumentAccessService;
 import com.javaee.documentservice.vo.CommentVO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,6 +30,7 @@ public class CommentServiceImpl implements CommentService {
 
     @Autowired
     private DocumentMapper documentMapper;
+    @Autowired private DocumentAccessService documentAccessService;
 
     @Override
     @Transactional
@@ -37,6 +39,7 @@ public class CommentServiceImpl implements CommentService {
         if (document == null) {
             throw new BusinessException("文档不存在");
         }
+        documentAccessService.assertCanRead(document, userId);
 
         if (dto.getParentId() != null) {
             DocumentComment parent = commentMapper.selectById(dto.getParentId());

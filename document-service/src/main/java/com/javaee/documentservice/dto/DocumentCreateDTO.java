@@ -17,6 +17,12 @@ public class DocumentCreateDTO {
 
     private String content;
 
+    private String organizationId;
+
+    private String departmentId;
+
+    private String folderId;
+
     private String category;
 
     private List<String> tags;

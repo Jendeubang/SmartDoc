@@ -67,11 +67,18 @@ const currentUserId = computed(() => {
 const profileForm = ref({ username: '', signature: '', avatarFileId: '' })
 const PROFILE_UPDATED_KEY = 'smartdoc_profile_updated_at'
 
-const notifyProfileUpdated = () => {
-  localStorage.setItem(PROFILE_UPDATED_KEY, String(Date.now()))
+const notifyProfileUpdated = (profile = {}) => {
+  const detail = {
+    type: 'profile-updated',
+    avatarFileId: profile.avatarFileId || '',
+    username: profile.username || '',
+    updatedAt: Date.now()
+  }
+  localStorage.setItem(PROFILE_UPDATED_KEY, JSON.stringify(detail))
+  window.dispatchEvent(new CustomEvent('smartdoc-profile-updated', { detail }))
   if (typeof BroadcastChannel !== 'undefined') {
     const channel = new BroadcastChannel('smartdoc-profile-sync')
-    channel.postMessage({ type: 'profile-updated' })
+    channel.postMessage(detail)
     channel.close()
   }
 }
@@ -162,9 +169,13 @@ const saveProfile = async () => {
     let cached = {}
     try { cached = JSON.parse(localStorage.getItem(STORAGE_KEYS.USER_INFO) || '{}') } catch { cached = {} }
     localStorage.setItem(STORAGE_KEYS.USER_INFO, JSON.stringify({ ...cached, ...updated }))
-    notifyProfileUpdated()
     profileForm.value.signature = updated.signature || profileForm.value.signature.trim()
     profileForm.value.avatarFileId = updated.avatarFileId || profileForm.value.avatarFileId
+    notifyProfileUpdated({
+      ...updated,
+      username: updated.username || profileForm.value.username,
+      avatarFileId: profileForm.value.avatarFileId
+    })
     ElMessage.success('个人信息已保存')
   } catch (error) {
     ElMessage.error(error?.response?.data?.message || '保存个人信息失败')

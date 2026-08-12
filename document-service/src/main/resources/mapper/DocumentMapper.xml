@@ -10,8 +10,13 @@
         SELECT DISTINCT d.*
         FROM document d
         LEFT JOIN document_access da ON da.document_id = d.id AND da.user_id = #{userId}
+          AND (da.expires_at IS NULL OR da.expires_at > NOW())
         WHERE d.status = 'active'
-          AND (d.user_id = #{userId} OR da.user_id IS NOT NULL)
+          AND (d.user_id = #{userId} OR da.user_id IS NOT NULL OR EXISTS (
+            SELECT 1 FROM enterprise_member em
+            WHERE em.organization_id = d.organization_id AND em.user_id = #{userId} AND em.status = 'active'
+              AND (d.department_id IS NULL OR em.department_id = d.department_id OR em.role = 'enterprise_admin')
+          ))
         ORDER BY d.create_time DESC
     </select>
 
@@ -19,8 +24,13 @@
         SELECT DISTINCT d.*
         FROM document d
         LEFT JOIN document_access da ON da.document_id = d.id AND da.user_id = #{userId}
+          AND (da.expires_at IS NULL OR da.expires_at > NOW())
         WHERE d.status = 'active'
-          AND (d.user_id = #{userId} OR da.user_id IS NOT NULL)
+          AND (d.user_id = #{userId} OR da.user_id IS NOT NULL OR EXISTS (
+            SELECT 1 FROM enterprise_member em
+            WHERE em.organization_id = d.organization_id AND em.user_id = #{userId} AND em.status = 'active'
+              AND (d.department_id IS NULL OR em.department_id = d.department_id OR em.role = 'enterprise_admin')
+          ))
         <if test="keyword != null and keyword != ''">
           AND (d.title LIKE CONCAT('%', #{keyword}, '%')
                OR d.content LIKE CONCAT('%', #{keyword}, '%')

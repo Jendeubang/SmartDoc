@@ -6,7 +6,6 @@ import 'element-plus/dist/index.css'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import './style.css'
 import './styles/morandi-theme.css'
-import './collaboration/autoInit'
 
 const app = createApp(App)
 

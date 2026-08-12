@@ -30,6 +30,8 @@ class DocumentServiceImplTest {
     private DocumentVersionMapper documentVersionMapper;
     private DocumentContentService documentContentService;
     private DocumentAccessService documentAccessService;
+    private EnterprisePermissionService enterprisePermissionService;
+    private EnterpriseAuditService enterpriseAuditService;
     private DocumentServiceImpl documentService;
 
     @BeforeEach
@@ -38,11 +40,15 @@ class DocumentServiceImplTest {
         documentVersionMapper = mock(DocumentVersionMapper.class);
         documentContentService = mock(DocumentContentService.class);
         documentAccessService = mock(DocumentAccessService.class);
+        enterprisePermissionService = mock(EnterprisePermissionService.class);
+        enterpriseAuditService = mock(EnterpriseAuditService.class);
         documentService = new DocumentServiceImpl();
         ReflectionTestUtils.setField(documentService, "documentMapper", documentMapper);
         ReflectionTestUtils.setField(documentService, "documentVersionMapper", documentVersionMapper);
         ReflectionTestUtils.setField(documentService, "documentContentService", documentContentService);
         ReflectionTestUtils.setField(documentService, "documentAccessService", documentAccessService);
+        ReflectionTestUtils.setField(documentService, "enterprisePermissionService", enterprisePermissionService);
+        ReflectionTestUtils.setField(documentService, "enterpriseAuditService", enterpriseAuditService);
         ReflectionTestUtils.setField(documentService, "objectMapper", new ObjectMapper());
     }
 
@@ -68,6 +74,8 @@ class DocumentServiceImplTest {
         assertThat(inserted.getValue().getBucketName()).isEqualTo("user-7");
         verify(documentMapper, times(2)).updateById(any(Document.class));
         verify(documentAccessService).grantOwnerAccess("doc-1", "user-7", 7L);
+        verify(enterprisePermissionService).assertCanPlace(null, null, null, 7L);
+        verify(enterpriseAuditService).record(null, 7L, "DOCUMENT_CREATE", "document", "doc-1", "计划");
         assertThat(vo.getBucketName()).isEqualTo("user-7");
         assertThat(vo.getObjectName()).isEqualTo("document-content/doc-1.txt");
     }
@@ -112,6 +120,7 @@ class DocumentServiceImplTest {
 
         verify(documentAccessService).assertCanWrite(document, 2L);
         verify(documentContentService).saveContentByKey("document-content/doc-4.txt", "owner-bucket", "");
+        verify(enterpriseAuditService).record(null, 2L, "DOCUMENT_UPDATE", "document", "doc-4", null);
         assertThat(document.getTitle()).isEqualTo("doc");
         assertThat(vo.getContent()).isEqualTo("");
     }

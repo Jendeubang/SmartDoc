@@ -26,6 +26,9 @@ public class DocumentAccessService {
     @Autowired
     private DocumentAccessMapper documentAccessMapper;
 
+    @Autowired
+    private EnterprisePermissionService enterprisePermissionService;
+
     @Value("${user.service.url:http://localhost:8081}")
     private String userServiceUrl;
 
@@ -152,6 +155,10 @@ public class DocumentAccessService {
         }
         if (isOwner(document, userId)) {
             return true;
+        }
+        if (document.getOrganizationId() != null && !document.getOrganizationId().isBlank()) {
+            if (allowedRoles.equals(READ_ROLES) && enterprisePermissionService.canRead(document, userId)) return true;
+            if (allowedRoles.equals(WRITE_ROLES) && enterprisePermissionService.canWrite(document, userId)) return true;
         }
         Long count = documentAccessMapper.selectCount(new QueryWrapper<DocumentAccess>()
                 .eq("document_id", document.getId())

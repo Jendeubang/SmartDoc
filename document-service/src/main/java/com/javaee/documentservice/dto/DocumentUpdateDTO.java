@@ -18,6 +18,12 @@ public class DocumentUpdateDTO {
 
     private String category;
 
+    private String organizationId;
+
+    private String departmentId;
+
+    private String folderId;
+
     private List<String> tags;
 
     private String changeLog;

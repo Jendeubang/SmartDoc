@@ -56,6 +56,25 @@ public class DocumentController {
     @Autowired
     private DocumentCategoryMapper documentCategoryMapper;
 
+    @GetMapping("/access/ids")
+    @Operation(summary = "获取可访问文档ID", description = "供权限感知RAG等内部能力获取当前用户实时可访问的文档范围")
+    public Result<List<String>> accessibleDocumentIds() {
+        Long userId = requestUserContext.getRequiredUserId();
+        return Result.success(documentMapper.selectAccessibleByUserId(userId).stream().map(Document::getId).toList());
+    }
+
+    @GetMapping("/{id}/access")
+    @Operation(summary = "校验文档权限", description = "校验当前用户对文档的读或写权限")
+    public Result<Map<String, Object>> checkAccess(@PathVariable String id,
+                                                   @RequestParam(defaultValue = "read") String mode) {
+        Long userId = requestUserContext.getRequiredUserId();
+        Document document = documentMapper.selectById(id);
+        if (document == null || !"active".equals(document.getStatus())) throw new BusinessException("文档不存在");
+        if ("write".equalsIgnoreCase(mode)) documentAccessService.assertCanWrite(document, userId);
+        else documentAccessService.assertCanRead(document, userId);
+        return Result.success(Map.of("documentId", id, "mode", mode, "allowed", true));
+    }
+
     /**
      * 创建文档
      * @param dto 创建文档请求参数
@@ -136,7 +155,19 @@ public class DocumentController {
         Document doc = documentMapper.selectById(id);
         if (doc == null) throw new BusinessException("文档不存在");
         documentAccessService.assertCanRead(doc, userId);
-        return Result.success(documentAccessService.getCollaborators(id));
+        List<Map<String, Object>> collaborators = documentAccessService.getCollaborators(id);
+        boolean ownerIncluded = collaborators.stream()
+                .anyMatch(access -> doc.getUserId() != null && doc.getUserId().equals(access.get("userId")));
+        if (!ownerIncluded && doc.getUserId() != null) {
+            Map<String, Object> owner = new java.util.LinkedHashMap<>();
+            owner.put("userId", doc.getUserId());
+            owner.put("role", "owner");
+            owner.put("expiresAt", null);
+            owner.put("expired", false);
+            owner.put("createTime", doc.getCreateTime());
+            collaborators.add(0, owner);
+        }
+        return Result.success(collaborators);
     }
 
     /**

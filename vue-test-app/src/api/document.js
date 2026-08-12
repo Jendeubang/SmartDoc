@@ -43,6 +43,16 @@ export const docApi = {
         return request.post(`/documents/${id}/restore/${versionNumber}`)
     },
 
+    getVersionDiff: (id, from, to) => request.get(`/documents/${id}/versions/diff`, { params: { from, to } }),
+
+    getComments: (id) => request.get(`/documents/${id}/comments`),
+    createComment: (id, data) => request.post(`/documents/${id}/comments`, data),
+    deleteComment: (id, commentId) => request.delete(`/documents/${id}/comments/${commentId}`),
+
+    getSuggestions: (id, status) => request.get(`/documents/${id}/suggestions`, { params: status ? { status } : {} }),
+    createSuggestion: (id, data) => request.post(`/documents/${id}/suggestions`, data),
+    decideSuggestion: (id, suggestionId, data) => request.post(`/documents/${id}/suggestions/${suggestionId}/decision`, data),
+
     // 删除文档
     deleteDoc: (id) => {
         return request.delete(`/documents/${id}`)
