@@ -3,42 +3,7 @@
     <el-container class="full-height">
 
       <!-- 1. 左侧：极简侧边栏 -->
-      <el-aside width="240px" class="feishu-aside">
-        <div class="aside-top">
-          <div class="brand">
-            <div class="logo-box"><el-icon><Cpu /></el-icon></div>
-            <span class="brand-text">SmartDoc</span></div>
-          <div class="nav-menu">
-            <div class="nav-item" :class="{ active: !showDocLibrary }" @click="goToWorkbench"><el-icon><Monitor /></el-icon> 我的工作台</div>
-            <div class="nav-item" :class="{ active: showDocLibrary }" @click="goToDocLibrary"><el-icon><FolderOpened /></el-icon> 云端文档库</div>
-            <a class="nav-item ai-chat-nav" href="/editor/chat-mode"><el-icon><ChatLineSquare /></el-icon> SmartDoc AI 对话</a>
-            <a class="nav-item toolbox-nav" href="/toolbox"><el-icon><MagicStick /></el-icon> 文档处理工具箱</a>
-            <a class="nav-item enterprise-nav" href="/enterprise"><el-icon><OfficeBuilding /></el-icon> 企业空间</a>
-            <div v-if="isAdminUser" class="nav-item aiops-nav" @click="goToAIOps">
-              <el-icon><Cpu /></el-icon> AI Ops 运维中心
-            </div>
-          </div>
-        </div>
-
-        <!-- 底部：真实用户信息 (头像取首字母) -->
-        <div class="aside-bottom">
-          <el-dropdown trigger="click" placement="top-start" @command="handleUserCommand">
-            <div class="user-profile">
-              <el-avatar :size="32" :src="userAvatarUrl || undefined" style="background-color: #3370ff; font-weight: bold; color: white;">
-                {{ currentUserName.charAt(0).toUpperCase() }}
-              </el-avatar>
-              <span class="username">{{ currentUserName }}</span>
-              <el-icon class="more-icon"><MoreFilled /></el-icon>
-            </div>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="profile" icon="User">个人信息</el-dropdown-item>
-                <el-dropdown-item command="logout" icon="SwitchButton" style="color: #F56C6C">退出系统</el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-        </div>
-      </el-aside>
+      <SmartDocSidebar :active="showDocLibrary ? 'library' : 'workbench'" :user-name="currentUserName" :avatar="userAvatarUrl" :admin="isAdminUser" @navigate="handleSidebarNavigate" @user-command="handleUserCommand" />
 
       <!-- 2. 右侧：主内容区 -->
       <el-main class="feishu-main" v-loading="loading">
@@ -78,7 +43,7 @@
               <!-- 弹出菜单：上传入口隐藏在这里 -->
               <div class="popover-content">
                 <div class="menu-list">
-                  <input type="file" ref="fileInputRef" style="display: none;" accept=".pdf,.doc,.docx,.txt,.md,.ppt,.pptx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp" @change="onFileSelected" />
+                  <input type="file" ref="fileInputRef" style="display: none;" multiple accept=".pdf,.doc,.docx,.txt,.md,.ppt,.pptx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp" @change="onFileSelected" />
                   <div class="upload-category-picker" @click.stop>
   <span>保存到</span>
   <el-select v-model="uploadCategory" size="small" clearable placeholder="未分类" style="width: 160px"><el-option v-for="category in categoryOptions" :key="category" :label="category" :value="category" /></el-select>
@@ -102,14 +67,21 @@
             </div>
           </div>
 
+          <WorkbenchOverview v-if="!showDocLibrary" :documents="docList" @open-library="goToDocLibrary" @open-document="openOverviewDocument" @filter="applyOverviewFilter" />
+
+          <SmartDocState v-if="listError" type="error" title="文档列表加载失败" :description="listError" action-text="重新加载" @action="fetchFiles" />
+
           <!-- ===== 文档库视图 ===== -->
-          <div v-if="showDocLibrary" class="doc-library">
+          <div v-if="showDocLibrary && !listError" class="doc-library">
             <div class="library-header">
               <div>
                 <h2 class="library-title"><el-icon><FolderOpened /></el-icon> 云端文档库</h2>
                 <p class="library-subtitle">共 {{ docList.length }} 篇文档</p>
               </div>
               <div class="library-actions">
+                <el-button v-if="libraryScope !== 'trash'" size="small" :disabled="!selectedDocumentIds.length" icon="OfficeBuilding" @click="openBatchEnterpriseSync">批量同步{{ selectedDocumentIds.length ? ` (${selectedDocumentIds.length})` : '' }}</el-button>
+                <el-button v-if="libraryScope !== 'trash' && recoverableParseFailedCount" size="small" type="warning" plain :loading="reparseRecoveryLoading" @click="repairFailedDocuments">修复解析失败 ({{ recoverableParseFailedCount }})</el-button>
+                <el-button v-if="libraryScope !== 'trash' && duplicateDocumentCount" size="small" type="danger" plain :loading="duplicateCleanupLoading" @click="cleanupDuplicateDocuments">清理重复文档 ({{ duplicateDocumentCount }})</el-button>
                 <el-radio-group v-model="libraryScope" size="small" @change="changeLibraryScope">
                   <el-radio-button label="all">全部</el-radio-button>
                   <el-radio-button label="favorite">收藏</el-radio-button>
@@ -174,6 +146,7 @@
             <div class="card-grid doc-library-grid" v-if="filteredList.length > 0">
               <div class="doc-card" v-for="doc in filteredList" :key="doc.id">
                 <div class="card-cover" :class="doc.color" @click="libraryScope !== 'trash' && goToEditor(doc.id, doc.name)">
+                  <el-checkbox v-if="doc.owned && libraryScope !== 'trash'" class="doc-select-checkbox" :model-value="isDocumentSelected(doc.id)" aria-label="选择文档" @click.stop @change="checked => toggleDocumentSelection(doc.id, checked)" />
                   <img v-if="doc.thumbnail" :src="doc.thumbnail" :alt="doc.name" class="document-thumbnail" />
                   <el-icon v-else :size="48" color="rgba(255,255,255,0.9)">
                     <Picture v-if="doc.kind === 'image'" />
@@ -182,6 +155,7 @@
                   </el-icon>
                   <span class="doc-category-badge">{{ doc.category || '未分类' }}</span>
                   <span v-if="!doc.owned" class="doc-shared-badge">协作</span>
+                  <span v-if="doc.organizationId" class="doc-enterprise-badge"><el-icon><OfficeBuilding /></el-icon>{{ organizationName(doc.organizationId) }}</span>
                   <el-icon v-if="doc.favorite" class="doc-favorite-badge" aria-label="已收藏"><StarFilled /></el-icon>
                   <span class="file-kind">{{ doc.extension || 'DOC' }}</span>
                 </div>
@@ -198,6 +172,8 @@
                           <el-dropdown-item command="rename" icon="EditPen">重命名</el-dropdown-item>
                           <el-dropdown-item command="category" icon="Folder">移动分类</el-dropdown-item>
                           <el-dropdown-item command="collaborate" icon="UserFilled">协作管理</el-dropdown-item>
+                          <el-dropdown-item v-if="doc.owned" command="enterprise" icon="OfficeBuilding">{{ doc.organizationId ? '调整企业同步' : '同步到企业空间' }}</el-dropdown-item>
+                          <el-dropdown-item v-if="doc.owned && doc.organizationId" command="enterprise-remove" icon="Remove">移出企业空间</el-dropdown-item>
                           <el-dropdown-item command="download" icon="Download">下载原文件</el-dropdown-item>
                           <el-dropdown-item v-if="doc.owned" command="delete" icon="Delete" divided style="color: #F56C6C">移入回收站</el-dropdown-item>
                         </el-dropdown-menu>
@@ -216,12 +192,13 @@
               </div>
             </div>
 
-            <el-empty v-else description="暂无文档，点击上方「上传文档」按钮上传" />
+            <SmartDocState v-else title="当前范围暂无文档" :description="emptyDocumentDescription" action-text="上传文档" @action="triggerUpload" />
           </div><!-- 最近文档列表（工作台视图） -->
-          <div ref="workbenchListRef" class="list-section" v-if="!showDocLibrary" :style="{ minHeight: workbenchListMinHeight }">
+          <div ref="workbenchListRef" class="list-section" v-if="!showDocLibrary && !listError" :style="{ minHeight: workbenchListMinHeight }">
             <div class="section-header">
               <span class="section-title">我的云端文档 <span class="count">({{ docList.length }})</span></span>
               <div class="header-actions">
+                <el-button size="small" :disabled="!selectedDocumentIds.length" icon="OfficeBuilding" @click="openBatchEnterpriseSync">批量同步{{ selectedDocumentIds.length ? ` (${selectedDocumentIds.length})` : '' }}</el-button>
                 <el-button size="small" icon="EditPen" @click="newDocDialogVisible = true">新建文档</el-button>
                 <el-button type="danger" size="small" plain icon="Delete" @click="clearDirtyData">一键清理文档</el-button>
                 <el-input
@@ -253,6 +230,7 @@
 
                 <!-- 卡片上半部分渐变封面 -->
                 <div class="card-cover" :class="doc.color" @click="libraryScope !== 'trash' && goToEditor(doc.id, doc.name)">
+                  <el-checkbox v-if="doc.owned && libraryScope !== 'trash'" class="doc-select-checkbox" :model-value="isDocumentSelected(doc.id)" aria-label="选择文档" @click.stop @change="checked => toggleDocumentSelection(doc.id, checked)" />
                   <img v-if="doc.thumbnail" :src="doc.thumbnail" :alt="doc.name" class="document-thumbnail" />
                   <el-icon v-else :size="48" color="rgba(255,255,255,0.9)">
                     <Picture v-if="doc.kind === 'image'" />
@@ -261,6 +239,7 @@
                   </el-icon>
                   <span class="doc-category-badge">{{ doc.category || '未分类' }}</span>
                   <span v-if="!doc.owned" class="doc-shared-badge">协作</span>
+                  <span v-if="doc.organizationId" class="doc-enterprise-badge"><el-icon><OfficeBuilding /></el-icon>{{ organizationName(doc.organizationId) }}</span>
                   <el-icon v-if="doc.favorite" class="doc-favorite-badge" aria-label="已收藏"><StarFilled /></el-icon>
                   <span class="file-kind">{{ doc.extension || 'DOC' }}</span>
                 </div>
@@ -279,6 +258,8 @@
                           <el-dropdown-item command="rename" icon="EditPen">重命名</el-dropdown-item>
                           <el-dropdown-item command="category" icon="Folder">移动分类</el-dropdown-item>
                           <el-dropdown-item command="collaborate" icon="UserFilled">协作管理</el-dropdown-item>
+                          <el-dropdown-item v-if="doc.owned" command="enterprise" icon="OfficeBuilding">{{ doc.organizationId ? '调整企业同步' : '同步到企业空间' }}</el-dropdown-item>
+                          <el-dropdown-item v-if="doc.owned && doc.organizationId" command="enterprise-remove" icon="Remove">移出企业空间</el-dropdown-item>
                           <el-dropdown-item command="download" icon="Download">下载原文件</el-dropdown-item>
                           <el-dropdown-item v-if="doc.owned" command="delete" icon="Delete" divided style="color: #F56C6C">移入回收站</el-dropdown-item>
                         </el-dropdown-menu>
@@ -297,7 +278,7 @@
               </div>
             </div>
 
-            <el-empty v-else description="暂无文档，点击上方对话框上传" />
+            <SmartDocState v-else title="还没有符合条件的文档" :description="emptyDocumentDescription" action-text="新建文档" @action="newDocDialogVisible = true" />
           </div>
 
         </div>
@@ -336,6 +317,38 @@
         <el-button @click="newDocDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="newDocSaving" @click="saveNewDocument">生成并保存</el-button>
       </template>
+    </el-dialog>
+    <el-dialog v-model="enterpriseSyncDialogVisible" :title="enterpriseSyncTargets.length > 1 ? `批量同步 ${enterpriseSyncTargets.length} 份文档` : '同步到企业空间'" width="560px" @closed="resetEnterpriseSyncDialog">
+      <div v-loading="enterpriseSyncLoading" class="enterprise-sync-dialog">
+        <el-alert title="使用同一份文档和文件，不会复制 MinIO 文件；个人工作台与企业空间的修改会保持一致。" type="info" :closable="false" show-icon />
+        <div class="enterprise-sync-documents">
+          <span>待同步文档</span>
+          <strong>{{ enterpriseSyncTargets.map(doc => doc.name).join('、') }}</strong>
+        </div>
+        <el-form :model="enterpriseSyncForm" label-position="top">
+          <el-form-item label="企业空间" required>
+            <el-select v-model="enterpriseSyncForm.organizationId" placeholder="选择企业空间" style="width:100%" @change="changeSyncOrganization">
+              <el-option v-for="organization in enterpriseOrganizations" :key="organization.id" :label="organization.name" :value="organization.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="可见范围">
+            <el-radio-group v-model="enterpriseSyncVisibility" @change="changeSyncVisibility"><el-radio-button label="organization" :disabled="!canSyncOrganizationWide">企业成员</el-radio-button><el-radio-button label="department">指定部门</el-radio-button></el-radio-group>
+          </el-form-item>
+          <el-form-item v-if="enterpriseSyncVisibility === 'department'" label="所属部门" required>
+            <el-select v-model="enterpriseSyncForm.departmentId" placeholder="选择部门" style="width:100%" @change="enterpriseSyncForm.folderId=''">
+              <el-option v-for="department in enterpriseSyncOverview.departments" :key="department.id" :label="department.name" :value="department.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="企业文件夹">
+            <el-select v-model="enterpriseSyncForm.folderId" clearable placeholder="不放入文件夹" style="width:100%"><el-option v-for="folder in availableSyncFolders" :key="folder.id" :label="folder.name" :value="folder.id" /></el-select>
+          </el-form-item>
+          <el-form-item label="企业成员权限">
+            <el-radio-group v-model="enterpriseSyncForm.accessLevel"><el-radio-button label="read">只读</el-radio-button><el-radio-button label="comment">可评论</el-radio-button><el-radio-button label="edit">可编辑</el-radio-button></el-radio-group>
+            <p class="enterprise-sync-permission-tip">文档所有者始终可编辑；企业成员按此权限访问，原有单独协作者权限不变。</p>
+          </el-form-item>
+        </el-form>
+      </div>
+      <template #footer><el-button @click="enterpriseSyncDialogVisible=false">取消</el-button><el-button type="primary" :loading="enterpriseSyncSaving" @click="syncDocumentsToEnterprise">确认同步</el-button></template>
     </el-dialog>
     <el-dialog v-model="collaborationDialogVisible" title="文档协作管理" width="560px" @closed="resetCollaborationDialog">
       <div v-loading="collaborationLoading" class="collaboration-manager">
@@ -494,12 +507,17 @@ import { Document as WordDocument, Packer, Paragraph, TextRun } from 'docx'
 import { fileApi } from '../../api/file'
 import { userApi } from '../../api/user'
 import { docApi } from '../../api/document'
+import { enterpriseApi } from '../../api/enterprise'
 import { aiApi } from '../../api/ai'
 import { STORAGE_KEYS } from '../../constants'
 import { isAdmin } from '../../utils/jwt'
+import SmartDocSidebar from '../../components/layout/SmartDocSidebar.vue'
+import SmartDocState from '../../components/common/SmartDocState.vue'
+import WorkbenchOverview from '../../components/dashboard/WorkbenchOverview.vue'
 
 const router = useRouter()
 const loading = ref(false)
+const listError = ref('')
 const showDocLibrary = ref(false)
 const currentUserName = ref('User')
 const userAvatarUrl = ref('')
@@ -510,6 +528,11 @@ const avatarFile = ref(null)
 const avatarInputRef = ref(null)
 const profileAvatarPreview = ref('')
 const docList = ref([])
+const enterpriseOrganizations=ref([]), enterpriseSyncOverview=ref({departments:[],folders:[]})
+const selectedDocumentIds=ref([]), enterpriseSyncTargets=ref([])
+const enterpriseSyncDialogVisible=ref(false), enterpriseSyncLoading=ref(false), enterpriseSyncSaving=ref(false)
+const enterpriseSyncVisibility=ref('organization')
+const enterpriseSyncForm=ref({organizationId:'',departmentId:'',folderId:'',accessLevel:'edit'})
 const libraryScope = ref('all')
 const UNCATEGORIZED_CATEGORY = '__uncategorized__'
 const categoryFilter = ref('')
@@ -517,11 +540,11 @@ const categories = ref([])
 const uploadCategory = ref('')
 const categoryDialogVisible = ref(false)
 const categorySaving = ref(false)
-const categoryForm = ref({ name: '', color: '#ACA0CE' })
+const categoryForm = ref({ name: '', color: '#7D9283' })
 const categoryMoveDialogVisible = ref(false)
 const categoryMoving = ref(false)
 const categoryMoveTarget = ref(null)
-const categoryMoveForm = ref({ category: '', newName: '', color: '#ACA0CE' })
+const categoryMoveForm = ref({ category: '', newName: '', color: '#7D9283' })
 const workbenchListRef = ref(null)
 const workbenchListMinHeight = ref('')
 const thumbnailUrls = new Set()
@@ -534,6 +557,8 @@ const pptDialogVisible = ref(false)
 const pptLoading = ref(false)
 const newDocDialogVisible = ref(false)
 const newDocSaving = ref(false)
+const reparseRecoveryLoading = ref(false)
+const duplicateCleanupLoading = ref(false)
 const newDocForm = ref({ title: '', content: '', format: 'txt', category: '' })
 const collaborationDialogVisible = ref(false)
 const collaborationLoading = ref(false)
@@ -632,7 +657,7 @@ const loadAvatar = async fileId => {
     return
   }
   try {
-    const sourceBlob = await fileApi.download(fileId)
+    const sourceBlob = await fileApi.download(fileId, { suppressGlobalError: true })
     if (loadVersion !== avatarLoadVersion) return
     const imageBlob = sourceBlob.type?.startsWith('image/')
       ? sourceBlob
@@ -734,6 +759,10 @@ const mapDocument = item => ({
   ownerUserId: item.userId,
   owned: String(item.userId) === String(getCurrentUserId()),
   fileId: item.fileId,
+  organizationId: item.organizationId || '',
+  departmentId: item.departmentId || '',
+  folderId: item.folderId || '',
+  enterpriseAccessLevel: item.enterpriseAccessLevel || 'edit',
   name: item.title || '未命名文档',
   time: item.createTime ? new Date(item.createTime).toLocaleDateString() : '未知',
   analyzed: !!item.summary || getProcessedDocumentIds().includes(String(item.id)),
@@ -759,7 +788,7 @@ const hydrateThumbnails = async documents => {
   const targets = documents.filter(doc => doc.kind === 'image' && doc.fileId).slice(0, 16)
   await Promise.all(targets.map(async doc => {
     try {
-      const sourceBlob = await fileApi.download(doc.fileId)
+      const sourceBlob = await fileApi.download(doc.fileId, { suppressGlobalError: true })
       const mimeByExtension = {
         jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
         gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp'
@@ -781,6 +810,7 @@ const fetchFiles = async () => {
   const uid = getCurrentUserId()
   if (!uid) { router.push('/login'); return }
   loading.value = true
+  listError.value = ''
   try {
     const res = libraryScope.value === 'trash' ? await docApi.getTrash() : await docApi.getUserDocs(uid)
     docList.value = Array.isArray(res.data) ? res.data.map(mapDocument) : []
@@ -788,6 +818,7 @@ const fetchFiles = async () => {
     else releaseThumbnails()
   } catch (e) {
     console.error('拉取列表失败', e)
+    listError.value = e?.userMessage || '无法读取你的文档，请检查服务连接后重试。'
   } finally { loading.value = false }
 }
 
@@ -823,7 +854,7 @@ const fetchCategories = async () => {
 const fetchModels = async () => {
   modelsLoading.value = true
   try {
-    const res = await aiApi.getModels().catch(() => null)
+    const res = await aiApi.getModels({ suppressGlobalError: true }).catch(() => null)
     if (res && res.data && res.data.length > 0) {
       aiModelsList.value = res.data
       const firstAvailable = res.data.find(m => m.available)
@@ -855,6 +886,7 @@ onMounted(() => {
   fetchFiles()
   fetchModels()
   fetchCategories()
+  fetchEnterpriseOrganizations()
 })
 
 const categoryOptions = computed(() => [...new Set([
@@ -862,11 +894,67 @@ const categoryOptions = computed(() => [...new Set([
   ...docList.value.map(doc => doc.category).filter(Boolean)
 ])])
 const categoryDocumentCount = name => docList.value.filter(doc => doc.category === name).length
+const organizationName = id => enterpriseOrganizations.value.find(organization => organization.id === id)?.name || '企业空间'
+const isDocumentSelected = id => selectedDocumentIds.value.includes(String(id))
+const toggleDocumentSelection = (id, checked) => {
+  const documentId=String(id)
+  selectedDocumentIds.value=checked?[...new Set([...selectedDocumentIds.value,documentId])]:selectedDocumentIds.value.filter(item=>item!==documentId)
+}
+const availableSyncFolders = computed(() => enterpriseSyncOverview.value.folders.filter(folder => {
+  if (enterpriseSyncVisibility.value === 'organization') return !folder.department_id
+  return folder.department_id === enterpriseSyncForm.value.departmentId
+}))
+const canSyncOrganizationWide = computed(() => enterpriseSyncOverview.value.membership?.role === 'enterprise_admin' || !enterpriseSyncOverview.value.membership?.department_id)
+const fetchEnterpriseOrganizations = async () => {
+  try { const response=await enterpriseApi.organizations(); enterpriseOrganizations.value=response.data||[] } catch { enterpriseOrganizations.value=[] }
+}
+const loadSyncOrganization = async organizationId => {
+  if(!organizationId){enterpriseSyncOverview.value={departments:[],folders:[]};return}
+  enterpriseSyncLoading.value=true
+  try {
+    const response=await enterpriseApi.overview(organizationId);enterpriseSyncOverview.value=response.data||{departments:[],folders:[]}
+    const membership=enterpriseSyncOverview.value.membership
+    if(membership?.role!=='enterprise_admin'&&membership?.department_id){enterpriseSyncVisibility.value='department';enterpriseSyncForm.value.departmentId=membership.department_id;enterpriseSyncForm.value.folderId=''}
+  } finally { enterpriseSyncLoading.value=false }
+}
+const changeSyncOrganization = async organizationId => {
+  enterpriseSyncForm.value.departmentId='';enterpriseSyncForm.value.folderId='';enterpriseSyncVisibility.value='organization'
+  await loadSyncOrganization(organizationId)
+}
+const changeSyncVisibility = () => { enterpriseSyncForm.value.departmentId='';enterpriseSyncForm.value.folderId='' }
+const openEnterpriseSync = async documents => {
+  const ownedDocuments=documents.filter(document=>document.owned)
+  if(!ownedDocuments.length){ElMessage.warning('只有文档所有者可以同步文档');return}
+  if(!enterpriseOrganizations.value.length)await fetchEnterpriseOrganizations()
+  if(!enterpriseOrganizations.value.length){ElMessage.warning('请先创建或加入一个企业空间');return}
+  enterpriseSyncTargets.value=ownedDocuments
+  const current=ownedDocuments.length===1?ownedDocuments[0]:null
+  enterpriseSyncForm.value={organizationId:current?.organizationId||enterpriseOrganizations.value[0].id,departmentId:current?.departmentId||'',folderId:current?.folderId||'',accessLevel:current?.enterpriseAccessLevel||'edit'}
+  enterpriseSyncVisibility.value=enterpriseSyncForm.value.departmentId?'department':'organization'
+  enterpriseSyncDialogVisible.value=true
+  await loadSyncOrganization(enterpriseSyncForm.value.organizationId)
+}
+const openBatchEnterpriseSync = () => openEnterpriseSync(docList.value.filter(document=>selectedDocumentIds.value.includes(String(document.id))))
+const resetEnterpriseSyncDialog = () => {enterpriseSyncTargets.value=[];enterpriseSyncOverview.value={departments:[],folders:[]};enterpriseSyncForm.value={organizationId:'',departmentId:'',folderId:'',accessLevel:'edit'};enterpriseSyncVisibility.value='organization'}
+const syncDocumentsToEnterprise = async () => {
+  const form=enterpriseSyncForm.value
+  if(!form.organizationId){ElMessage.warning('请选择企业空间');return}
+  if(enterpriseSyncVisibility.value==='department'&&!form.departmentId){ElMessage.warning('请选择所属部门');return}
+  enterpriseSyncSaving.value=true
+  try{
+    await enterpriseApi.syncDocuments({documentIds:enterpriseSyncTargets.value.map(document=>document.id),organizationId:form.organizationId,departmentId:enterpriseSyncVisibility.value==='department'?form.departmentId:'',folderId:form.folderId,accessLevel:form.accessLevel})
+    ElMessage.success(`已同步 ${enterpriseSyncTargets.value.length} 份文档到 ${organizationName(form.organizationId)}`)
+    selectedDocumentIds.value=[];enterpriseSyncDialogVisible.value=false;await fetchFiles()
+  }finally{enterpriseSyncSaving.value=false}
+}
+const removeDocumentFromEnterprise = async doc => {
+  try{await ElMessageBox.confirm(`确定将《${doc.name}》移出 ${organizationName(doc.organizationId)} 吗？个人工作台中的原文档会保留。`,'移出企业空间',{type:'warning'});await enterpriseApi.removeDocument(doc.id);ElMessage.success('已移出企业空间，个人文档已保留');await fetchFiles()}catch{}
+}
 const uncategorizedDocumentCount = computed(() => docList.value.filter(doc => !doc.category).length)
 const categoryBoards = computed(() => {
   const boards = categoryOptions.value.map(name => {
     const persisted = categories.value.find(category => category.name === name)
-    return { id: persisted?.id || `legacy-${name}`, name, value: name, color: persisted?.color || '#ACA0CE', count: categoryDocumentCount(name), persisted: !!persisted }
+    return { id: persisted?.id || `legacy-${name}`, name, value: name, color: persisted?.color || '#7D9283', count: categoryDocumentCount(name), persisted: !!persisted }
   })
   if (uncategorizedDocumentCount.value) {
     boards.unshift({ id: UNCATEGORIZED_CATEGORY, name: '未分类', value: UNCATEGORIZED_CATEGORY, color: '#B7AFBD', count: uncategorizedDocumentCount.value, persisted: false })
@@ -912,6 +1000,12 @@ const filteredList = computed(() => docList.value
   }))
 const statusLabel = doc => doc.parseStatus === 'parsing' ? '解析中' : doc.parseStatus === 'failed' ? '解析失败' : doc.analyzed ? '已处理' : '已解析'
 const statusType = doc => doc.parseStatus === 'parsing' ? 'warning' : doc.parseStatus === 'failed' ? 'danger' : doc.analyzed ? 'success' : 'info'
+const emptyDocumentDescription = computed(() => search.value
+  ? `没有找到与“${search.value}”匹配的文档，可以清除搜索词后重试。`
+  : categoryFilter.value ? '当前分类中还没有文档，可上传文档或将已有文档移动到这里。'
+    : libraryScope.value === 'favorite' ? '还没有收藏文档，点击文档右上角的收藏标志即可加入。'
+      : libraryScope.value === 'trash' ? '回收站为空。'
+        : '上传或新建第一份文档，开始使用 SmartDoc。')
 
 const processedDocumentsKey = () => `smartdoc_processed_documents_${getCurrentUserId() || 'guest'}`
 
@@ -964,32 +1058,157 @@ const triggerUpload = () => {
   fileInputRef.value?.click()
 }
 
+const waitForIndexSubmission = (milliseconds = 900) => new Promise(resolve => window.setTimeout(resolve, milliseconds))
+const retryRequest = async (request, attempts = 3) => {
+  let lastError
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try { return await request() } catch (error) {
+      lastError = error
+      if (attempt < attempts) await waitForIndexSubmission(attempt * 900)
+    }
+  }
+  throw lastError
+}
+
+// 同名文件可能因重复上传而存在旧副本；恢复时只处理最新副本，避免产生重复知识库向量。
+const recoverableParseFailedDocuments = computed(() => {
+  const newestByName = new Map()
+  for (const document of docList.value) {
+    const current = newestByName.get(document.name)
+    if (!current || Number(document.updatedAt || 0) > Number(current.updatedAt || 0)) newestByName.set(document.name, document)
+  }
+  return [...newestByName.values()].filter(document => document.parseStatus === 'failed')
+})
+const recoverableParseFailedCount = computed(() => recoverableParseFailedDocuments.value.length)
+const duplicateDocuments = computed(() => {
+  const newestByScopeAndName = new Map()
+  const duplicates = []
+  for (const document of [...docList.value].sort((left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0))) {
+    const key = [document.organizationId || '', document.departmentId || '', document.folderId || '', document.name || ''].join('|')
+    if (newestByScopeAndName.has(key)) duplicates.push(document)
+    else newestByScopeAndName.set(key, document)
+  }
+  return duplicates
+})
+const duplicateDocumentCount = computed(() => duplicateDocuments.value.length)
+
+const submitAutoKnowledgeIndex = async (document) => {
+  const documentId = String(document?.id || '').trim()
+  if (!documentId) throw new Error('文档创建成功但没有返回文档 ID')
+  let content = String(document?.content || '').trim()
+  if (!content) {
+    const detail = await docApi.getDocDetail(documentId)
+    content = String(detail?.data?.content || '').trim()
+  }
+  if (!content) throw new Error('文档正文尚未解析完成，无法自动索引')
+  await aiApi.indexWithSegment(documentId, content, 'AUTO')
+}
+
+const repairFailedDocuments = async () => {
+  const targets = [...recoverableParseFailedDocuments.value]
+  if (!targets.length) return
+  try {
+    await ElMessageBox.confirm(
+      `将重新解析 ${targets.length} 份文档并自动提交知识库索引。仅处理每个同名文件的最新副本，旧副本不会重复索引。`,
+      '修复解析失败文档',
+      { type: 'warning', confirmButtonText: '开始修复', cancelButtonText: '取消' }
+    )
+  } catch { return }
+  reparseRecoveryLoading.value = true
+  const failedNames = []
+  let recovered = 0
+  try {
+    for (const document of targets) {
+      try {
+        const response = await docApi.reparseDoc(document.id)
+        await submitAutoKnowledgeIndex(response?.data || document)
+        recovered += 1
+      } catch (error) {
+        console.warn(`恢复《${document.name}》失败`, error)
+        failedNames.push(document.name)
+      }
+      await waitForIndexSubmission()
+    }
+    await fetchFiles()
+    if (recovered) ElMessage.success(`已恢复 ${recovered} 份文档，并提交知识库索引任务`)
+    if (failedNames.length) ElMessage.error(`${failedNames.length} 份文档恢复失败：${failedNames.slice(0, 3).join('、')}${failedNames.length > 3 ? '…' : ''}`)
+  } finally {
+    reparseRecoveryLoading.value = false
+  }
+}
+
+const cleanupDuplicateDocuments = async () => {
+  const targets = [...duplicateDocuments.value]
+  if (!targets.length) return
+  try {
+    await ElMessageBox.confirm(
+      `将保留每个企业/文件夹范围内同名文档的最新一份，并把 ${targets.length} 份旧副本移入回收站；旧副本的知识库索引也会移除。`,
+      '清理重复文档',
+      { type: 'warning', confirmButtonText: '保留最新并清理', cancelButtonText: '取消' }
+    )
+  } catch { return }
+  duplicateCleanupLoading.value = true
+  const failedNames = []
+  let cleaned = 0
+  try {
+    for (const document of targets) {
+      try {
+        await aiApi.removeIndexedDocument(document.id).catch(() => {})
+        await retryRequest(() => docApi.deleteDoc(document.id), 2)
+        cleaned += 1
+      } catch (error) {
+        console.warn(`清理重复文档《${document.name}》失败`, error)
+        failedNames.push(document.name)
+      }
+      await waitForIndexSubmission()
+    }
+    await fetchFiles()
+    if (cleaned) ElMessage.success(`已将 ${cleaned} 份重复文档移入回收站，并保留最新副本`)
+    if (failedNames.length) ElMessage.error(`${failedNames.length} 份文档未能清理：${failedNames.slice(0, 3).join('、')}${failedNames.length > 3 ? '…' : ''}`)
+  } finally {
+    duplicateCleanupLoading.value = false
+  }
+}
+
 const onFileSelected = async (event) => {
-  const rawFile = event.target.files[0]
-  if (!rawFile) return
+  const rawFiles = Array.from(event.target.files || [])
+  if (!rawFiles.length) return
 
   loading.value = true
+  const failedNames = []
+  const indexFailedNames = []
+  let indexedSubmissionCount = 0
   try {
-    // 先传文件仓库
-    const fileRes = await fileApi.upload(rawFile)
-    const fileId = fileRes?.data?.fileId || fileRes?.data?.id
-    if (!fileId) {
-      throw new Error('文件上传成功但没有返回 fileId')
+    // 逐个完成“文件存储 -> 文档注册 -> 异步索引”，避免并发触发网关限流或创建孤儿文件。
+    for (const rawFile of rawFiles) {
+      try {
+        const fileRes = await retryRequest(() => fileApi.upload(rawFile))
+        const fileId = fileRes?.data?.fileId || fileRes?.data?.id
+        if (!fileId) throw new Error('文件上传成功但没有返回 fileId')
+        const documentRes = await retryRequest(() => docApi.createDoc({
+          title: rawFile.name,
+          fileId,
+          category: uploadCategory.value || null
+        }))
+        try {
+          await retryRequest(() => submitAutoKnowledgeIndex(documentRes?.data))
+          indexedSubmissionCount += 1
+        } catch (indexError) {
+          // 文档已经安全入库；索引失败可以在工具箱的知识库索引任务中重试，不能回滚上传。
+          console.warn(`《${rawFile.name}》自动索引提交失败`, indexError)
+          indexFailedNames.push(rawFile.name)
+        }
+        await waitForIndexSubmission()
+      } catch (error) {
+        console.error(`上传《${rawFile.name}》失败`, error)
+        failedNames.push(rawFile.name)
+      }
     }
-
-    // 在文档服务注册
-    await docApi.createDoc({
-      title: rawFile.name,
-      fileId: fileId,
-      category: uploadCategory.value || null
-    })
-
-    ElMessage.success(`《${rawFile.name}》已成功存入云端！`)
     await fetchFiles()
-    event.target.value = ''
-  } catch (e) {
-    console.error('上传链路异常', e)
-    ElMessage.error('上传链路异常')
+    const succeeded = rawFiles.length - failedNames.length
+    if (succeeded) ElMessage.success(`已上传 ${succeeded} 份文档，已提交 ${indexedSubmissionCount} 个知识库索引任务${failedNames.length ? `，${failedNames.length} 份上传失败` : ''}`)
+    if (failedNames.length) ElMessage.error(`上传失败：${failedNames.slice(0, 3).join('、')}${failedNames.length > 3 ? '…' : ''}`)
+    if (indexFailedNames.length) ElMessage.warning(`文档已上传，但 ${indexFailedNames.length} 份索引未提交；可在工具箱的“知识库索引”中重试。`)
   } finally {
     event.target.value = ''
     loading.value = false
@@ -998,10 +1217,10 @@ const onFileSelected = async (event) => {
 
 const resetCategoryForm = () => {
   categorySaving.value = false
-  categoryForm.value = { name: '', color: '#ACA0CE' }
+  categoryForm.value = { name: '', color: '#7D9283' }
 }
 
-const ensureCategoryExists = async (name, color = '#ACA0CE') => {
+const ensureCategoryExists = async (name, color = '#7D9283') => {
   const normalizedName = String(name || '').trim()
   if (!normalizedName || categories.value.some(category => category.name === normalizedName)) return
   const res = await docApi.createCategory({ name: normalizedName, color })
@@ -1012,12 +1231,12 @@ const ensureCategoryExists = async (name, color = '#ACA0CE') => {
 const resetCategoryMoveForm = () => {
   categoryMoving.value = false
   categoryMoveTarget.value = null
-  categoryMoveForm.value = { category: '', newName: '', color: '#ACA0CE' }
+  categoryMoveForm.value = { category: '', newName: '', color: '#7D9283' }
 }
 
 const openCategoryMoveDialog = doc => {
   categoryMoveTarget.value = doc
-  categoryMoveForm.value = { category: doc.category || '', newName: '', color: '#ACA0CE' }
+  categoryMoveForm.value = { category: doc.category || '', newName: '', color: '#7D9283' }
   categoryMoveDialogVisible.value = true
 }
 
@@ -1028,7 +1247,7 @@ const moveDocumentCategory = async () => {
   const targetCategory = newName || categoryMoveForm.value.category.trim()
   categoryMoving.value = true
   try {
-    if (newName) await ensureCategoryExists(newName, categoryMoveForm.value.color || '#ACA0CE')
+    if (newName) await ensureCategoryExists(newName, categoryMoveForm.value.color || '#7D9283')
     await docApi.updateDoc(doc.id, {
       category: targetCategory || '',
       changeLog: targetCategory ? "调整文档分类" : "移出文档分类"
@@ -1048,7 +1267,7 @@ const createCategory = async () => {
   if (!name) { ElMessage.warning('请填写板块名称'); return }
   categorySaving.value = true
   try {
-    const res = await docApi.createCategory({ name, color: categoryForm.value.color || '#ACA0CE' })
+    const res = await docApi.createCategory({ name, color: categoryForm.value.color || '#7D9283' })
     if (res.data) categories.value.push(res.data)
     else await fetchCategories()
     newDocForm.value.category = name
@@ -1156,6 +1375,14 @@ const downloadBlob = (blob, fileName) => {
 
 // 文档卡片操作
 const handleCardCommand = async (cmd, doc) => {
+  if (cmd === 'enterprise') {
+    await openEnterpriseSync([doc])
+    return
+  }
+  if (cmd === 'enterprise-remove') {
+    await removeDocumentFromEnterprise(doc)
+    return
+  }
   if (cmd === 'collaborate') {
     await openCollaborationManager(doc)
     return
@@ -1318,9 +1545,13 @@ const handleAiTask = () => {
 }
 
 
-const handleUserCommand = (cmd) => {
+const handleUserCommand = async (cmd) => {
   if (cmd === 'profile') { openProfile(); return }
-  if (cmd === 'logout') { localStorage.clear(); router.push('/login'); }
+  if (cmd === 'logout') {
+    const refreshToken = localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN)
+    try { await userApi.logout(refreshToken) } catch (_) { /* local logout still completes */ }
+    localStorage.clear(); router.push('/login')
+  }
 }
 
 const goToDocLibrary = () => {
@@ -1346,6 +1577,23 @@ const goToWorkbench = async () => {
 
 const goToAIOps = () => {
   router.push('/aiops')
+}
+const handleSidebarNavigate = destination => ({
+  workbench: goToWorkbench,
+  library: goToDocLibrary,
+  ai: goToAiChat,
+  toolbox: goToToolbox,
+  enterprise: () => router.push('/enterprise'),
+  aiops: goToAIOps
+}[destination]?.())
+const openOverviewDocument = doc => {
+  if (doc?.id) goToEditor(doc.id, doc.name)
+}
+const applyOverviewFilter = filter => {
+  showDocLibrary.value = true
+  categoryFilter.value = ''
+  search.value = ''
+  libraryScope.value = filter === 'favorite' ? 'favorite' : 'all'
 }
 </script>
 
@@ -1409,6 +1657,8 @@ const goToAIOps = () => {
 .doc-card { background: #fff; border-radius: 12px; border: 1px solid #ebeef5; overflow: hidden; transition: 0.3s; }
 .doc-card:hover { transform: translateY(-4px); box-shadow: 0 12px 24px rgba(31, 35, 41, 0.08); }
 .doc-shared-badge { position: absolute; top: 12px; left: 88px; z-index: 2; padding: 3px 8px; border-radius: 999px; background: rgba(255,255,255,.9); color: #77668d; font-size: 11px; font-weight: 700; box-shadow: 0 2px 7px rgba(60,45,70,.1); }
+.doc-select-checkbox { position:absolute;left:10px;bottom:9px;z-index:4;padding:4px 6px;border-radius:8px;background:rgba(255,255,255,.93);box-shadow:0 2px 8px rgba(70,55,78,.14) }.doc-enterprise-badge{position:absolute;left:10px;top:42px;z-index:3;max-width:calc(100% - 20px);display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border-radius:999px;background:rgba(111,91,137,.9);color:#fff;font-size:10px;font-weight:700;box-shadow:0 3px 9px rgba(69,50,83,.2)}
+.enterprise-sync-dialog{min-height:260px}.enterprise-sync-documents{display:flex;flex-direction:column;gap:5px;margin:14px 0;padding:12px 14px;border-radius:11px;background:#f5f1f7}.enterprise-sync-documents span,.enterprise-sync-permission-tip{color:#8d8293;font-size:12px}.enterprise-sync-documents strong{max-height:48px;overflow:auto;color:#564d5c;line-height:1.55}.enterprise-sync-permission-tip{width:100%;margin:8px 0 0;line-height:1.55}
 .collaboration-manager { min-height: 180px; }
 .collaboration-document { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; padding: 14px 16px; border-radius: 12px; background: #f4f0f7; }
 .collaboration-document > div { display: flex; flex-direction: column; gap: 4px; }

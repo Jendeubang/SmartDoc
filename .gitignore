@@ -43,8 +43,16 @@ reproduce/.env.local
 
 # Generated dependencies, runtime data and local tooling files
 node_modules/
+.m2repo/
 logs/
 minio-data/
 work/
 *.bak
 .idea/
+secrets/
+
+# Evaluation outputs are reproducible artifacts; keep scripts, datasets and summaries,
+# but do not commit generated JMeter HTML dependency trees or Python bytecode.
+evaluation/reports/
+**/__pycache__/
+*.pyc

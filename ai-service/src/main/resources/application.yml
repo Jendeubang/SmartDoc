@@ -21,16 +21,24 @@ spring:
 
   # ── Spring AI 配置 ──────────────────────────────────────────
   ai:
-    # 默认模型：DeepSeek Chat（OpenAI 兼容接口）
+    # 生成模型：DeepSeek Chat（OpenAI 兼容接口）
     openai:
       api-key: ${OPENAI_API_KEY:}
       base-url: https://api.deepseek.com
       chat:
         options:
           model: deepseek-chat
+      # 向量模型必须使用独立的 Embedding 服务。DeepSeek 当前不提供 Embedding API，
+      # 因此通过 OpenAI 兼容协议调用 DashScope text-embedding-v4。
       embedding:
+        enabled: true
+        api-key: ${DASHSCOPE_API_KEY:}
+        # Spring AI 1.0.0-M4 会自动拼接 /v1/embeddings，因此此处不能重复写 /v1。
+        base-url: ${DASHSCOPE_EMBEDDING_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode}
         options:
-          model: text-embedding-ada-002
+          model: ${DASHSCOPE_EMBEDDING_MODEL:text-embedding-v4}
+          dimensions: ${DASHSCOPE_EMBEDDING_DIMENSIONS:1536}
+          encoding-format: float
       image:
         enabled: false
 
@@ -88,6 +96,8 @@ spring:
 
 # ── AI 业务配置 ──────────────────────────────────────────────
 ai:
+  credentials:
+    master-key: ${SMARTDOC_AI_CREDENTIAL_MASTER_KEY:}
   deepseek:
     read-timeout-ms: ${DEEPSEEK_READ_TIMEOUT_MS:120000}
   # DashScope Qwen3 ASR. DeepSeek only creates meeting minutes after transcription.
@@ -122,6 +132,8 @@ ai:
   vector:
     dimension: 1536
     hnsw:
+      # Java 进程内 HNSW 加速层；未就绪或异常时自动回退 RedisVectorStore
+      enabled: ${SMARTDOC_HNSW_ENABLED:true}
       m: 16
       ef-construction: 200
       ef: 128
@@ -161,7 +173,7 @@ minio:
 # 文档服务配置
 document:
   service:
-    url: http://document:8084
+    url: ${DOCUMENT_SERVICE_URL:http://localhost:8084}
 
 # 日志配置
 logging:

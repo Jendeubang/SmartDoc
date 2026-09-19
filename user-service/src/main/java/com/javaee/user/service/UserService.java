@@ -6,7 +6,11 @@ import com.javaee.user.dto.RegisterDTO;
 import com.javaee.user.dto.UserProfileUpdateDTO;
 import com.javaee.user.entity.User;
 import com.javaee.user.vo.LoginVO;
+import com.javaee.user.vo.UserDirectoryVO;
 import com.javaee.user.vo.UserVO;
+import com.javaee.user.vo.RefreshTokenVO;
+
+import java.util.List;
 
 /**
  * @description: 用户服务
@@ -45,7 +49,17 @@ public interface UserService extends IService<User> {
      * @param refreshToken 刷新令牌
      * @return 新的访问令牌
      */
-    String refreshToken(String refreshToken);
+    RefreshTokenVO refreshToken(String refreshToken);
+
+    void logout(String accessToken, String refreshToken);
+
+    void forceLogout(Long operatorId, Long targetUserId);
+
+    String requestPasswordReset(String account);
+
+    void resetPassword(String token, String newPassword);
 
     UserVO updateProfile(Long userId, UserProfileUpdateDTO dto);
+
+    List<UserDirectoryVO> searchDirectory(String keyword);
 }

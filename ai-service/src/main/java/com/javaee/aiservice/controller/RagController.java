@@ -6,6 +6,7 @@ package com.javaee.aiservice.controller;
  */
 
 import com.javaee.aiservice.agent.ChatService;
+import com.javaee.aiservice.client.DocumentServiceClient;
 import com.javaee.aiservice.rag.DocumentSegmenter;
 import com.javaee.aiservice.rag.KnowledgeBase;
 import com.javaee.aiservice.rag.PermissionAwareRagService;
@@ -53,6 +54,9 @@ public class RagController {
     @Autowired
     private PermissionAwareRagService permissionAwareRag;
 
+    @Autowired
+    private DocumentServiceClient documentServiceClient;
+
     /**
      * 文档索引
      */
@@ -63,7 +67,7 @@ public class RagController {
             @Parameter(description = "知识库ID") @RequestParam(defaultValue = "default") String knowledgeBaseId,
             @Parameter(description = "文档内容") @RequestBody String content) {
         permissionAwareRag.assertCanIndex(documentId);
-        knowledgeBase.addDocument(documentId, content, userMetadata(knowledgeBaseId));
+        knowledgeBase.addDocument(documentId, content, userMetadata(documentId, knowledgeBaseId));
         return Result.success();
     }
 
@@ -88,7 +92,7 @@ public class RagController {
             return Result.fail("无效的分段策略: " + strategy);
         }
 
-        knowledgeBase.addDocument(documentId, content, userMetadata(knowledgeBaseId), strategyType);
+        knowledgeBase.addDocument(documentId, content, userMetadata(documentId, knowledgeBaseId), strategyType);
         return Result.success();
     }
 
@@ -296,11 +300,13 @@ public class RagController {
         return chatService.callChatApi(prompt);
     }
 
-    private Map<String, Object> userMetadata(String knowledgeBaseId) {
-        return Map.of(
-                "userId", requestUserContext.getRequiredUserId(),
-                "knowledgeBaseId", permissionAwareRag.normalizeKnowledgeBaseId(knowledgeBaseId)
-        );
+    private Map<String, Object> userMetadata(String documentId, String knowledgeBaseId) {
+        Map<String, Object> metadata = new java.util.LinkedHashMap<>();
+        metadata.put("userId", requestUserContext.getRequiredUserId());
+        metadata.put("knowledgeBaseId", permissionAwareRag.normalizeKnowledgeBaseId(knowledgeBaseId));
+        Object organizationId = documentServiceClient.getDocument(documentId).get("organizationId");
+        if (organizationId != null && !String.valueOf(organizationId).isBlank()) metadata.put("organizationId", organizationId);
+        return metadata;
     }
 
     private int limitTopK(int topK) {

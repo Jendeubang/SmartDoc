@@ -2,6 +2,7 @@ package com.javaee.aiservice.agent;
 
 import com.javaee.aiservice.factory.AIServiceFactory;
 import com.javaee.aiservice.model.ModelType;
+import com.javaee.aiservice.provider.UserAIProviderCredentialService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +19,9 @@ public class ChatService {
 
     @Autowired
     private AIServiceFactory aiServiceFactory;
+
+    @Autowired
+    private UserAIProviderCredentialService userAIProviderCredentialService;
 
     /**
      * 调用默认模型（qwen-plus）
@@ -70,6 +74,9 @@ public class ChatService {
      * @return 响应内容
      */
     public String callChatApiWithModelCode(String prompt, String modelCode) {
+        // 用户配置的模型优先；未配置或配置表尚未初始化时，继续使用服务器默认模型。
+        var userModel = userAIProviderCredentialService.callIfConfigured(prompt, modelCode);
+        if (userModel.isPresent()) return userModel.get();
         if (modelCode == null || modelCode.isEmpty()) {
             return callChatApiWithModelType(prompt, null);
         }

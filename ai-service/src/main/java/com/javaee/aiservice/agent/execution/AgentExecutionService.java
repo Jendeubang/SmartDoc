@@ -154,11 +154,12 @@ public class AgentExecutionService {
     @Value("${ai.agent.reflection.enabled:true}")
     private boolean defaultReflectionEnabled;
 
+    // ============ 入口：执行一次完整的 Agent 任务（规划 → 执行工具 → 反思 → 合成回答） ============
     public Map<String, Object> execute(AgentExecutionRequest request) {
         validateRequest(request);
 
         long startedAt = System.currentTimeMillis();
-        String userId = requestUserContext.getRequiredUserId();
+        String userId = requestUserContext.getRequiredUserId();  
         request.setUserId(userId);
 
         String continueTraceId = request.getContinueTraceId();
@@ -177,6 +178,7 @@ public class AgentExecutionService {
         boolean requiresAction;
         String stoppedReason;
 
+        // 续接任务：从 Redis 快照恢复上次未完成的状态（plan/toolResults/timeline），实现断点续跑
         if (continueTraceId != null && !continueTraceId.isBlank()) {
             existingSnapshot = taskRegistry.get(continueTraceId);
             if (existingSnapshot == null || existingSnapshot.isEmpty()) {
@@ -221,8 +223,10 @@ public class AgentExecutionService {
             publishTaskEvent("task_continued", traceId, userId, "running", progressOf(toolCallCount, Math.max(1, intValue(request.getMaxToolCalls(), 8))),
                     "Agent 任务续接，用户补充: " + request.getTask(), Map.of("supplement", request.getTask()));
         } else {
+            // 新任务：生成 traceId，初始化空的 plan/toolResults/timeline
             traceId = UUID.randomUUID().toString();
-            conversationId = ensureConversation(request.getConversationId(), userId);
+            conversationId = ensureConversation(request.getConversationId(), userId,
+                    asString(request.getContext() == null ? null : request.getContext().get("conversationChannel")));
             context = mergeContext(conversationId, request.getContext());
             context.put("userId", userId);
             context.put("role", requestUserContext.getCurrentRole());
@@ -245,17 +249,21 @@ public class AgentExecutionService {
             stoppedReason = "completed";
         }
 
+        // 防死循环的硬上限：迭代轮数默认 3、上限 5；工具调用默认 8、上限 20
         int maxIterations = Math.max(1, Math.min(intValue(request.getMaxIterations(), 3), 5));
         int maxToolCalls = Math.max(1, Math.min(intValue(request.getMaxToolCalls(), 8), 20));
         List<AgentPlanStep> reflectionPlan = List.of();
 
+        // ============ 核心执行循环：每轮「规划步骤 → 逐个执行工具 → 反思」，直到完成或达上限 ============
         for (int iteration = startIteration; iteration <= maxIterations; iteration++) {
             iterations = iteration;
+            // 支持用户中途取消（Redis 里置取消标记）
             if (taskRegistry.isCancelled(traceId)) {
                 stoppedReason = "cancelled";
                 publishTaskEvent("task_cancelled", traceId, userId, "cancelled", 100, "Agent 任务已取消", Map.of());
                 break;
             }
+            // 本轮要跑的步骤：若无待执行步骤，就调 LLM 生成新一轮执行计划
             List<AgentPlanStep> iterationPlan = runnablePlanForIteration(plan, iteration);
             if (iterationPlan.isEmpty()) {
                 iterationPlan = buildIterationPlan(request, context, plan, toolResults, iteration, reflectionPlan);
@@ -267,7 +275,9 @@ public class AgentExecutionService {
                 break;
             }
 
+            // 逐个执行本轮步骤
             for (AgentPlanStep step : iterationPlan) {
+                // 已完成的步骤跳过
                 if (AgentStepStatus.isTerminal(step.getStatus())) {
                     continue;
                 }
@@ -306,6 +316,7 @@ public class AgentExecutionService {
                     break;
                 }
 
+                // 幂等去重：相同工具 + 相同参数只执行一次，避免重复调用
                 String signature = step.getToolName() + ":" + safeJson(step.getParams());
                 if (executedSignatures.contains(signature) && !"direct-answer".equals(step.getToolName())) {
                     step.setStatus(AgentStepStatus.SKIPPED.value());
@@ -315,6 +326,7 @@ public class AgentExecutionService {
                 }
                 executedSignatures.add(signature);
 
+                // 核心：执行工具（内部带失败重试），结果写进 timeline 并合并进 context
                 removePreviousActionRequiredResult(toolResults, step);
                 AgentToolResult result = runStepWithRetry(step, request, context, iteration, timeline);
                 publishTaskEvent("step_finished", traceId, userId, step.getStatus(), progressOf(toolCallCount + 1, maxToolCalls),
@@ -322,6 +334,7 @@ public class AgentExecutionService {
                 toolResults.add(result);
                 toolCallCount++;
                 mergeToolResultIntoContext(context, result, step);
+                // 工具调用审计：把本次调用记录到 MCP 审计日志（traceId 全链路串链）
                 internalService.logAudit(step.getToolName(), step.getParams(), objectMapper.convertValue(result, new TypeReference<>() {}));
 
                 if ("error".equals(result.getStatus()) || result.isRequiresAction()) {
@@ -339,7 +352,14 @@ public class AgentExecutionService {
             if (requiresAction || "tool_call_limit".equals(stoppedReason)) {
                 break;
             }
+            // Proofreading must never fall back to a different content source after failure: doing so can
+            // turn an uncompleted check into a misleading "0 typos" answer.
+            if ("tool_error".equals(stoppedReason)
+                    && isProofreadingIntent(firstNonBlank(asString(context.get("displayUserMessage")), request.getTask()))) {
+                break;
+            }
 
+            // 每轮结束做反思：判断是否完成、缺什么信息、是否需要重规划（返回 AgentReflection 对象）
             AgentReflection reflection = reflectAfterIteration(request, plan, toolResults, context,
                     iteration, maxIterations, traceId, userId);
             if (reflection != null) {
@@ -365,6 +385,7 @@ public class AgentExecutionService {
                 break;
             }
 
+            // 反思未完成且允许重规划 → 用反思给出的修订计划（revisedPlan）进入下一轮迭代
             if (isReflectionEnabled(request)) {
                 if (reflection == null || reflection.isComplete() || !reflection.isContinueExecution()) {
                     if (!"tool_error".equals(stoppedReason) && !"dependency_failed".equals(stoppedReason)) {
@@ -390,8 +411,12 @@ public class AgentExecutionService {
             }
         }
 
+        // 循环结束：把工具结果合成最终回答（含来源引用）
         String finalAnswer = synthesizeAnswer(request, plan, toolResults, context, requiresAction);
-        conversationManager.addMessageForUser(conversationId, userId, request.getTask(), finalAnswer);
+        String persistedUserMessage = asString(context.get("displayUserMessage"));
+        // 本轮问答持久化到 MySQL（ConversationPersistenceService → ai_conversation / ai_conversation_message）
+        conversationManager.addMessageForUser(conversationId, userId,
+                isBlank(persistedUserMessage) ? request.getTask() : persistedUserMessage, finalAnswer);
         context.put("lastAnswer", finalAnswer);
         context.put("lastToolResults", toolResults);
         context.put("lastReflections", reflections);
@@ -421,6 +446,7 @@ public class AgentExecutionService {
         } else if (!pendingUserInput.isEmpty()) {
             response.put("pendingUserInput", pendingUserInput);
         }
+        // 任务快照写入 Redis（AgentTaskRegistry），支撑断点续跑与进度查询
         taskRegistry.save(traceId, response);
         if (requiresAction) {
             publishTaskEvent("task_waiting_user", traceId, userId, String.valueOf(response.get("status")), 95,
@@ -1013,7 +1039,8 @@ public class AgentExecutionService {
         return Set.of("answer", "sources", "retrieved", "results", "fileUrl", "objectName",
                 "bucketName", "recycleId", "versionId", "documentId", "documentTitle",
                 "documentContent", "documentVersion", "query", "frontendAction",
-                "requiresFrontendWrite", "writeMode", "changeLog", "persisted", "insertAfterText").contains(key);
+                "requiresFrontendWrite", "writeMode", "changeLog", "persisted", "insertAfterText",
+                "documentCount", "indexedDocumentCount", "unindexedDocumentCount", "documents").contains(key);
     }
 
     private void validateRequest(AgentExecutionRequest request) {
@@ -1022,12 +1049,13 @@ public class AgentExecutionService {
         }
     }
 
-    private String ensureConversation(String conversationId, String userId) {
+    private String ensureConversation(String conversationId, String userId, String channel) {
         if (!isBlank(conversationId)) {
-            conversationManager.assertOwner(conversationId, userId);
+            conversationManager.ensurePersistentConversation(conversationId, userId,
+                    isBlank(channel) ? "general" : channel);
             return conversationId;
         }
-        return conversationManager.createConversation(userId);
+        return conversationManager.createConversation(userId, isBlank(channel) ? "general" : channel);
     }
 
     private Map<String, Object> mergeContext(String conversationId, Map<String, Object> requestContext) {
@@ -1039,6 +1067,18 @@ public class AgentExecutionService {
     }
 
     private List<AgentPlanStep> buildPlan(AgentExecutionRequest request, Map<String, Object> context) {
+        String userQuestion = firstNonBlank(asString(context.get("displayUserMessage")), request.getTask());
+        if (isProofreadingIntent(userQuestion) && !isBlank(asString(context.get("documentContent")))) {
+            return documentProofreadPlan(request, context, userQuestion);
+        }
+        // Counts and listings are database facts, not semantic-search questions. Bypass the LLM
+        // planner so a small RAG hit set can never be mistaken for the user's full document set.
+        if (isDocumentCatalogIntent(request.getTask())) {
+            return documentCatalogPlan(request, context);
+        }
+        if (isCrossDocumentContentIntent(request.getTask()) && !Boolean.FALSE.equals(request.getRagEnabled())) {
+            return fallbackPlan(request, context);
+        }
         if (!isBlank(asString(context.get("documentId"))) && isDeleteIntent(request.getTask())) {
             return fallbackPlan(request, context);
         }
@@ -1348,7 +1388,9 @@ public class AgentExecutionService {
         boolean fileOperationIntent = isDeleteIntent(task) || containsAny(task, "下载", "恢复", "回收站", "版本");
         String contextDocumentId = asString(context.get("documentId"));
 
-        if (!isBlank(contextDocumentId) && isDeleteIntent(task)) {
+        if (isDocumentCatalogIntent(task)) {
+            return documentCatalogPlan(request, context);
+        } else if (!isBlank(contextDocumentId) && isDeleteIntent(task)) {
             AgentPlanStep step = new AgentPlanStep("step-1", "根据前端documentId永久删除对应业务文档", "file-delete", new HashMap<>());
             step.getParams().put("documentId", contextDocumentId);
             step.getParams().put("requireConfirmation", false);
@@ -1391,7 +1433,8 @@ public class AgentExecutionService {
             write.getParams().put("writeMode", writeMode);
             write.getParams().put("contentType", "text/plain");
             return normalizePlan(List.of(generate, write), request, context);
-        } else if (containsAny(task, "知识库", "文档库", "问答", "查询", "检索", "根据文档")) {
+        } else if (containsAny(task, "知识库", "文档库", "问答", "查询", "检索", "根据文档")
+                || isCrossDocumentContentIntent(task)) {
             tool = Boolean.FALSE.equals(request.getRagEnabled()) ? "direct-answer" : "rag-answer";
         } else if (containsAny(task, "总结", "摘要")) {
             tool = "text-summarize";
@@ -1418,6 +1461,25 @@ public class AgentExecutionService {
         AgentPlanStep step = new AgentPlanStep("step-1", task, tool, new HashMap<>());
         fillDefaultParams(step, request, context);
         return List.of(step);
+    }
+
+    private List<AgentPlanStep> documentCatalogPlan(AgentExecutionRequest request, Map<String, Object> context) {
+        AgentPlanStep step = new AgentPlanStep("step-1", "查询实时可访问文档目录", "document-catalog", new HashMap<>());
+        step.getParams().put("question", request.getTask());
+        step.getParams().put("knowledgeBaseId", firstNonBlank(
+                asString(context.get("knowledgeBaseId")), valueOrDefault(request.getKnowledgeBaseId(), "default")));
+        return normalizePlan(List.of(step), request, context);
+    }
+
+    private List<AgentPlanStep> documentProofreadPlan(AgentExecutionRequest request, Map<String, Object> context,
+                                                      String userQuestion) {
+        AgentPlanStep step = new AgentPlanStep("step-1", "逐字校对用户选中的文档并统计错别字",
+                "document-proofread", new HashMap<>());
+        step.getParams().put("content", asString(context.get("documentContent")));
+        step.getParams().put("question", userQuestion);
+        step.getParams().put("model", request.getModel());
+        step.setSuccessCriteria("data.answer;data.count");
+        return normalizePlan(List.of(step), request, context);
     }
 
     private String frontendDocumentWritePrompt() {
@@ -1466,6 +1528,10 @@ public class AgentExecutionService {
         String documentId = firstNonBlank(asString(params.get("documentId")), asString(context.get("documentId")));
 
         switch (step.getToolName()) {
+            case "document-catalog" -> {
+                params.putIfAbsent("question", request.getTask());
+                params.putIfAbsent("knowledgeBaseId", context.getOrDefault("knowledgeBaseId", "default"));
+            }
             case "rag-answer" -> {
                 params.putIfAbsent("question", request.getTask());
                 params.putIfAbsent("topK", 3);
@@ -1485,10 +1551,12 @@ public class AgentExecutionService {
                 params.putIfAbsent("maxLength", 300);
                 params.putIfAbsent("model", request.getModel());
             }
-            case "text-analyze", "keyword-extract", "text-correct" -> {
-                params.putIfAbsent("content", firstNonBlank(asString(context.get("selectedText")), content));
+            case "text-analyze", "keyword-extract", "text-correct", "document-proofread" -> {
+                params.putIfAbsent("content", firstNonBlank(asString(context.get("selectedText")),
+                        asString(context.get("documentContent")), content));
                 params.putIfAbsent("count", 8);
                 params.putIfAbsent("instruction", request.getTask());
+                params.putIfAbsent("question", firstNonBlank(asString(context.get("displayUserMessage")), request.getTask()));
                 params.putIfAbsent("model", request.getModel());
             }
             case "file-download-url", "file-version-list", "file-version-switch" -> {
@@ -1761,12 +1829,14 @@ public class AgentExecutionService {
         return switch (tool) {
             case "direct-answer" -> executeDirectAnswer(request, params);
             case "ask-user" -> executeAskUser(params);
+            case "document-catalog" -> executeDocumentCatalog(params);
             case "rag-answer" -> executeRagAnswer(params, request.getModel());
             case "rag-search" -> executeRagSearch(params);
             case "text-summarize" -> executeSummarize(params);
             case "text-analyze" -> executeAnalyze(params);
             case "keyword-extract" -> executeKeywords(params);
             case "text-correct" -> executeTextCorrect(params);
+            case "document-proofread" -> executeDocumentProofread(params);
             case "file-download-url" -> executeFileDownloadUrl(params);
             case "file-delete" -> executeFileDelete(params, request.getUserId());
             case "file-restore" -> executeFileRestore(params);
@@ -1808,18 +1878,88 @@ public class AgentExecutionService {
 
     private AgentToolResult executeRagAnswer(Map<String, Object> params, String model) {
         String question = firstNonBlank(asString(params.get("question")), asString(params.get("query")));
+        String knowledgeBaseId = valueOrDefault(asString(params.get("knowledgeBaseId")), "default");
+        Map<String, Object> catalog = loadDocumentCatalog(knowledgeBaseId);
+        if (isCrossDocumentContentIntent(question) && intValue(catalog.get("unindexedDocumentCount"), 0) > 0) {
+            List<Map<String, Object>> indexJobs = queueMissingDocumentIndexes(catalog, knowledgeBaseId);
+            if (!indexJobs.isEmpty()) {
+                int total = intValue(catalog.get("documentCount"), 0);
+                int indexed = intValue(catalog.get("indexedDocumentCount"), 0);
+                String answer = "检测到您当前有 " + total + " 个可访问文档，但只有 " + indexed
+                        + " 个已完成知识库索引。已自动为 " + indexJobs.size()
+                        + " 个未索引文档创建后台索引任务。为避免生成不完整或错误的全量结论，本次暂不作答；"
+                        + "请等待索引任务完成后再次提问。";
+                Map<String, Object> data = new LinkedHashMap<>(catalog);
+                data.put("question", question);
+                data.put("answer", answer);
+                data.put("indexing", true);
+                data.put("indexJobs", indexJobs);
+                data.put("sources", List.of());
+                data.put("retrieved", List.of());
+                return AgentToolResult.success("rag-answer", "知识库正在补齐索引", data);
+            }
+        }
         List<Map<String, Object>> results = searchKnowledge(question, intValue(params.get("topK"), 3),
                 firstNonBlank(asString(params.get("rerankStrategy")), asString(params.get("strategy"))),
-                asString(params.get("userId")), asString(params.get("knowledgeBaseId")));
+                asString(params.get("userId")), knowledgeBaseId);
+        enrichResultsWithCatalog(results, catalog);
+        int retrievedDocumentCount = sourceDocumentIds(results).size();
+        if (results.isEmpty()) {
+            int total = intValue(catalog.get("documentCount"), 0);
+            int indexed = intValue(catalog.get("indexedDocumentCount"), 0);
+            String answer = total == 0
+                    ? "您当前没有可访问的文档，因此知识库中没有可用于回答的内容。"
+                    : indexed == 0
+                    ? "您当前共有 " + total + " 个可访问文档，但它们尚未完成知识库索引，暂时无法基于文档内容回答。请先完成索引后再试。"
+                    : "您当前共有 " + total + " 个可访问文档，其中 " + indexed + " 个已完成知识库索引，但本次没有检索到与问题相关的内容。";
+            Map<String, Object> data = new LinkedHashMap<>(catalog);
+            data.put("question", question);
+            data.put("answer", answer);
+            data.put("sources", List.of());
+            data.put("retrieved", List.of());
+            return AgentToolResult.success("rag-answer", "知识库未命中相关内容", data);
+        }
         String context = buildKnowledgeContext(results);
-        String prompt = promptEngineeringService.createRagAnswerPrompt(question, context);
+        String prompt = promptEngineeringService.createRagAnswerPrompt(question, context)
+                + "\n\n" + buildCatalogFacts(catalog)
+                + "\n本次检索片段覆盖文档数=" + retrievedDocumentCount + "。"
+                + "\n严格约束：文档总数只能采用上述实时目录事实；检索命中数只是相关片段数量，绝不能当作文档总数。"
+                + "回答必须基于给定片段；证据不足时明确说明，不得补造文档、数量或内容。"
+                + "如果用户要求全部或多文档结论，而检索覆盖文档数少于已索引文档数，必须明确说明本次结果不是全量覆盖。";
         String answer = chatService.callChatApiWithModelCode(prompt, model);
-        Map<String, Object> data = new LinkedHashMap<>();
+        Map<String, Object> data = new LinkedHashMap<>(catalog);
         data.put("question", question);
         data.put("answer", answer);
-        data.put("sources", results.stream().map(r -> r.get("id")).toList());
+        data.put("sources", sourceDocumentIds(results));
+        data.put("retrievedDocumentCount", retrievedDocumentCount);
         data.put("retrieved", results);
         return AgentToolResult.success("rag-answer", "知识库问答完成", data);
+    }
+
+    private AgentToolResult executeDocumentCatalog(Map<String, Object> params) {
+        String knowledgeBaseId = valueOrDefault(asString(params.get("knowledgeBaseId")), "default");
+        Map<String, Object> data = loadDocumentCatalog(knowledgeBaseId);
+        int total = intValue(data.get("documentCount"), 0);
+        int indexed = intValue(data.get("indexedDocumentCount"), 0);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> documents = (List<Map<String, Object>>) data.getOrDefault("documents", List.of());
+
+        String answer;
+        if (total == 0) {
+            answer = "您当前没有可访问的文档。";
+        } else {
+            String names = documents.stream().limit(10)
+                    .map(document -> valueOrDefault(asString(document.get("title")), asString(document.get("id"))))
+                    .filter(name -> !isBlank(name))
+                    .collect(Collectors.joining("、"));
+            String omitted = total > 10 ? "等（其余 " + (total - 10) + " 个未展开）" : "";
+            answer = "您当前共有 " + total + " 个可访问文档，其中 " + indexed + " 个已完成知识库索引。"
+                    + (names.isBlank() ? "" : "文档包括：" + names + omitted + "。")
+                    + "这里统计的是您有权访问的有效文档，包括自己创建以及通过协作或企业空间获得权限的文档。";
+        }
+        data.put("question", asString(params.get("question")));
+        data.put("answer", answer);
+        return AgentToolResult.success("document-catalog", "实时文档目录查询完成", data);
     }
 
     private AgentToolResult executeRagSearch(Map<String, Object> params) {
@@ -1830,7 +1970,7 @@ public class AgentExecutionService {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("query", query);
         data.put("results", results);
-        data.put("sources", results.stream().map(r -> r.get("id")).toList());
+        data.put("sources", sourceDocumentIds(results));
         return AgentToolResult.success("rag-search", "知识库检索完成", data);
     }
 
@@ -1894,6 +2034,97 @@ public class AgentExecutionService {
         data.put("isErrorCorrection", isErrorCorrection);
         data.put("answer", result); // 让 synthesizeAnswer 能直接取到结果
         return AgentToolResult.success("text-correct", "文本处理完成", data);
+    }
+
+    private AgentToolResult executeDocumentProofread(Map<String, Object> params) {
+        String content = requireParam(params, "content");
+        String question = firstNonBlank(asString(params.get("question")), "请统计原文中的错别字");
+        String prompt = """
+                你是一名严谨的中文文字校对员。请逐字检查下方原文，找出明确的错别字、同音误写和形近字误写。
+
+                校对规则：
+                1. 必须以提供的原文为唯一依据，不得先润色、改写或自动纠正后再检查。
+                2. 每一个错误位置单独计为一处；同一个错误在不同位置重复出现时分别计数。
+                3. 只统计有明确正确替换词的错别字，不把标点风格、可接受异体词、专业术语或单纯语病计入总数。
+                4. 仔细检查形近字和同音字，例如“数子/数字”“只能/智能”这类错误，不能只判断句子是否通顺。
+                5. 只输出合法 JSON 对象，不要输出 Markdown、代码块或解释文字。
+
+                JSON 格式：
+                {"issues":[{"wrong":"原文错误词","correct":"正确词","context":"包含错误词的短句","reason":"简短原因"}]}
+
+                用户问题：
+                %s
+
+                必须忠实校对的原文：
+                %s
+                """.formatted(question, content);
+
+        String model = asString(params.get("model"));
+        String raw = chatService.callChatApiWithModelCode(prompt, model);
+        try {
+            Map<String, Object> parsed;
+            try {
+                parsed = parseProofreadPayload(raw);
+            } catch (Exception firstParseFailure) {
+                String repaired = chatService.callChatApiWithModelCode("""
+                        请把下面的校对结果转换为严格合法的 JSON 对象，只输出 JSON，不要解释、Markdown或代码块。
+                        固定格式：
+                        {"issues":[{"wrong":"原文错误词","correct":"正确词","context":"包含错误词的短句","reason":"简短原因"}]}
+                        不得新增、删除或改写任何问题项；如果原结果明确没有问题，则 issues 输出空数组。
+
+                        待转换内容：
+                        %s
+                        """.formatted(raw), model);
+                parsed = parseProofreadPayload(repaired);
+            }
+            List<Map<String, Object>> rawIssues = objectMapper.convertValue(
+                    parsed.getOrDefault("issues", List.of()), new TypeReference<>() {});
+            List<Map<String, Object>> issues = rawIssues.stream()
+                    .filter(issue -> !isBlank(asString(issue.get("wrong")))
+                            && !isBlank(asString(issue.get("correct")))
+                            && !asString(issue.get("wrong")).trim().equals(asString(issue.get("correct")).trim())
+                            && content.contains(asString(issue.get("wrong")).trim()))
+                    .map(issue -> {
+                        Map<String, Object> normalized = new LinkedHashMap<>();
+                        normalized.put("wrong", asString(issue.get("wrong")).trim());
+                        normalized.put("correct", asString(issue.get("correct")).trim());
+                        normalized.put("context", valueOrDefault(asString(issue.get("context")), ""));
+                        normalized.put("reason", valueOrDefault(asString(issue.get("reason")), ""));
+                        return normalized;
+                    })
+                    .toList();
+
+            int count = issues.size();
+            StringBuilder answer = new StringBuilder("经逐字校对，共检测到 ")
+                    .append(count).append(" 处明确错别字。");
+            for (int index = 0; index < issues.size(); index++) {
+                Map<String, Object> issue = issues.get(index);
+                answer.append('\n').append(index + 1).append(". “")
+                        .append(issue.get("wrong")).append("”应为“")
+                        .append(issue.get("correct")).append("”");
+                if (!isBlank(asString(issue.get("context")))) {
+                    answer.append("；原文：").append(issue.get("context"));
+                }
+            }
+
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("count", count);
+            data.put("issues", issues);
+            data.put("answer", answer.toString());
+            return AgentToolResult.success("document-proofread", "文档逐字校对完成", data);
+        } catch (Exception exception) {
+            throw new IllegalStateException("校对模型未返回可解析的问题清单，请重试", exception);
+        }
+    }
+
+    private Map<String, Object> parseProofreadPayload(String raw) throws Exception {
+        String json = stripObjectJson(raw);
+        Map<String, Object> parsed = objectMapper.readValue(json, new TypeReference<>() {});
+        Object issues = parsed.get("issues");
+        if (!(issues instanceof List<?>)) {
+            throw new IllegalArgumentException("校对结果缺少 issues 数组");
+        }
+        return parsed;
     }
 
     private AgentToolResult executeFileDownloadUrl(Map<String, Object> params) {
@@ -2200,7 +2431,13 @@ public class AgentExecutionService {
 
     private List<Map<String, Object>> searchKnowledge(String query, int topK, String strategy, String userId, String knowledgeBaseId) {
         Reranker.RerankStrategy rerankStrategy = parseRerankStrategy(strategy);
-        int limitedTopK = Math.max(1, Math.min(topK, 20));
+        boolean diverse = isCrossDocumentContentIntent(query);
+        int requestedTopK = diverse ? Math.max(6, topK * 2) : topK;
+        int limitedTopK = Math.max(1, Math.min(requestedTopK, 20));
+        if (diverse) {
+            return permissionAwareRag.hybridSearchWithRerankDiverse(query, limitedTopK,
+                    valueOrDefault(knowledgeBaseId, "default"), rerankStrategy, DocumentSegmenter.StrategyType.CHAPTER);
+        }
         return permissionAwareRag.hybridSearchWithRerank(query, limitedTopK,
                 valueOrDefault(knowledgeBaseId, "default"), rerankStrategy, DocumentSegmenter.StrategyType.CHAPTER);
     }
@@ -2215,7 +2452,8 @@ public class AgentExecutionService {
 
     private String synthesizeAnswer(AgentExecutionRequest request, List<AgentPlanStep> plan,
                                     List<AgentToolResult> results, Map<String, Object> context, boolean requiresAction) {
-        if (!results.isEmpty() && "direct-answer".equals(results.get(results.size() - 1).getToolName())) {
+        if (!results.isEmpty() && Set.of("direct-answer", "document-catalog", "rag-answer", "document-proofread")
+                .contains(results.get(results.size() - 1).getToolName())) {
             Object answer = results.get(results.size() - 1).getData().get("answer");
             if (answer != null) {
                 return answer.toString();
@@ -2278,10 +2516,113 @@ public class AgentExecutionService {
         StringBuilder builder = new StringBuilder();
         for (int i = 0; i < results.size(); i++) {
             Map<String, Object> result = results.get(i);
-            builder.append("来源").append(i + 1).append(" ID=").append(result.get("id")).append("\n")
+            builder.append("来源").append(i + 1)
+                    .append(" 文档ID=").append(result.getOrDefault("documentId", result.get("id")))
+                    .append(" 标题=").append(result.getOrDefault("documentTitle", "未命名文档"))
+                    .append(" 片段ID=").append(result.get("id")).append("\n")
                     .append(result.getOrDefault("content", "")).append("\n\n");
         }
         return builder.toString();
+    }
+
+    private Map<String, Object> loadDocumentCatalog(String knowledgeBaseId) {
+        List<Map<String, Object>> accessible = documentServiceClient.getAccessibleDocuments();
+        Set<String> indexedIds = new LinkedHashSet<>(
+                permissionAwareRag.accessibleIndexedDocumentIds(valueOrDefault(knowledgeBaseId, "default")));
+        List<Map<String, Object>> documents = new ArrayList<>();
+        for (Map<String, Object> source : accessible) {
+            String id = asString(source.get("id"));
+            if (isBlank(id)) continue;
+            Map<String, Object> document = new LinkedHashMap<>();
+            document.put("id", id);
+            document.put("title", firstNonBlank(asString(source.get("title")), "未命名文档"));
+            document.put("fileId", source.get("fileId"));
+            document.put("category", source.get("category"));
+            document.put("parseStatus", source.get("parseStatus"));
+            document.put("organizationId", source.get("organizationId"));
+            document.put("indexed", indexedIds.contains(id));
+            documents.add(document);
+        }
+        Map<String, Object> catalog = new LinkedHashMap<>();
+        catalog.put("documentCount", documents.size());
+        catalog.put("indexedDocumentCount", (int) documents.stream()
+                .filter(document -> Boolean.TRUE.equals(document.get("indexed"))).count());
+        catalog.put("unindexedDocumentCount", documents.size() - (int) indexedIds.stream()
+                .filter(id -> documents.stream().anyMatch(document -> id.equals(document.get("id")))).count());
+        catalog.put("documents", documents);
+        catalog.put("knowledgeBaseId", valueOrDefault(knowledgeBaseId, "default"));
+        catalog.put("scope", "current-user-live-access");
+        return catalog;
+    }
+
+    private List<Map<String, Object>> queueMissingDocumentIndexes(Map<String, Object> catalog, String knowledgeBaseId) {
+        Object catalogDocuments = catalog.get("documents");
+        if (!(catalogDocuments instanceof List<?> documents)) return List.of();
+        List<Map<String, Object>> jobs = new ArrayList<>();
+        String userId = requestUserContext.getRequiredUserId();
+        for (Object item : documents) {
+            if (!(item instanceof Map<?, ?> document) || Boolean.TRUE.equals(document.get("indexed"))) continue;
+            String documentId = asString(document.get("id"));
+            if (isBlank(documentId)) continue;
+            try {
+                Map<String, Object> fullDocument = documentServiceClient.getDocument(documentId);
+                String content = asString(fullDocument.get("content"));
+                if (isBlank(content)) {
+                    log.warn("跳过空文档索引: documentId={}", documentId);
+                    continue;
+                }
+                Map<String, Object> metadata = new LinkedHashMap<>();
+                metadata.put("userId", userId);
+                metadata.put("knowledgeBaseId", valueOrDefault(knowledgeBaseId, "default"));
+                metadata.put("title", firstNonBlank(asString(document.get("title")), asString(fullDocument.get("title"))));
+                Object organizationId = fullDocument.get("organizationId");
+                if (organizationId != null && !organizationId.toString().isBlank()) {
+                    metadata.put("organizationId", organizationId);
+                }
+                jobs.add(knowledgeIndexAgent.indexDocumentAsyncIfNeeded(documentId, content, metadata));
+            } catch (Exception exception) {
+                log.warn("自动补齐文档索引失败: documentId={}, error={}", documentId, exception.getMessage());
+            }
+        }
+        return jobs;
+    }
+
+    private void enrichResultsWithCatalog(List<Map<String, Object>> results, Map<String, Object> catalog) {
+        Object catalogDocuments = catalog.get("documents");
+        if (!(catalogDocuments instanceof List<?> documents)) return;
+        Map<String, String> titles = new HashMap<>();
+        for (Object item : documents) {
+            if (item instanceof Map<?, ?> document) {
+                String id = asString(document.get("id"));
+                if (!isBlank(id)) titles.put(id, asString(document.get("title")));
+            }
+        }
+        for (Map<String, Object> result : results) {
+            String documentId = firstNonBlank(asString(result.get("documentId")), asString(result.get("id")));
+            if (!isBlank(documentId) && titles.containsKey(documentId)) {
+                result.put("documentTitle", titles.get(documentId));
+            }
+        }
+    }
+
+    private String buildCatalogFacts(Map<String, Object> catalog) {
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> documents = (List<Map<String, Object>>) catalog.getOrDefault("documents", List.of());
+        String names = documents.stream().limit(20)
+                .map(document -> valueOrDefault(asString(document.get("title")), asString(document.get("id"))))
+                .collect(Collectors.joining("、"));
+        return "实时权限目录事实：可访问文档总数=" + intValue(catalog.get("documentCount"), 0)
+                + "，已完成当前知识库索引=" + intValue(catalog.get("indexedDocumentCount"), 0)
+                + "，未索引=" + intValue(catalog.get("unindexedDocumentCount"), 0)
+                + "。文档目录=" + (names.isBlank() ? "空" : names) + "。";
+    }
+
+    private List<String> sourceDocumentIds(List<Map<String, Object>> results) {
+        return results.stream()
+                .map(result -> firstNonBlank(asString(result.get("documentId")), asString(result.get("id"))))
+                .filter(id -> !isBlank(id))
+                .distinct()
+                .toList();
     }
 
     private String stripJson(String raw) {
@@ -2409,6 +2750,41 @@ public class AgentExecutionService {
         return false;
     }
 
+    private boolean isDocumentCatalogIntent(String text) {
+        if (text == null || text.isBlank()) return false;
+        String normalized = text.toLowerCase(Locale.ROOT).replaceAll("\\s+", "");
+        boolean refersToDocuments = containsAny(normalized, "文件", "文档", "知识库")
+                || normalized.contains("file") || normalized.contains("document");
+        if (!refersToDocuments) return false;
+
+        return containsAny(normalized,
+                "几个文件", "多少文件", "文件数量", "文件总数", "一共有几个文件", "一共有多少文件",
+                "几个文档", "多少文档", "文档数量", "文档总数", "一共有几个文档", "一共有多少文档",
+                "有哪些文件", "有哪些文档", "文件列表", "文档列表", "列出文件", "列出文档",
+                "知识库有几个", "知识库有多少", "知识库数量")
+                || normalized.contains("howmanyfiles")
+                || normalized.contains("howmanydocuments")
+                || normalized.contains("filecount")
+                || normalized.contains("documentcount")
+                || normalized.contains("listfiles")
+                || normalized.contains("listdocuments");
+    }
+
+    private boolean isCrossDocumentContentIntent(String text) {
+        if (text == null || text.isBlank()) return false;
+        String normalized = text.toLowerCase(Locale.ROOT).replaceAll("\\s+", "");
+        boolean refersToDocuments = containsAny(normalized, "文档", "文件", "知识库")
+                || normalized.contains("documents") || normalized.contains("files");
+        if (!refersToDocuments || isDocumentCatalogIntent(text)) return false;
+        return containsAny(normalized, "所有文档", "全部文档", "所有文件", "全部文件", "多份文档", "多个文档",
+                "两份文档", "多份文件", "多个文件", "两份文件", "跨文档", "对比", "比较", "相似", "冲突",
+                "共同点", "差异", "统一结论", "汇总")
+                || normalized.contains("alldocuments")
+                || normalized.contains("allfiles")
+                || normalized.contains("comparedocuments")
+                || normalized.contains("comparefiles");
+    }
+
     private boolean isDeleteIntent(String text) {
         if (text == null) {
             return false;
@@ -2417,6 +2793,16 @@ public class AgentExecutionService {
         return containsAny(text, "删除", "删掉", "移除", "清除")
                 || lower.contains("delete")
                 || lower.contains("remove");
+    }
+
+    private boolean isProofreadingIntent(String text) {
+        if (text == null) {
+            return false;
+        }
+        String lower = text.toLowerCase(Locale.ROOT);
+        return containsAny(text, "错别字", "错字", "别字", "笔误", "校对", "拼写错误")
+                || lower.contains("typo")
+                || lower.contains("proofread");
     }
 
     private int intValue(Object value, int defaultValue) {

@@ -7,11 +7,14 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /** RAG authorization is derived from document-service on every request. */
+// 权限感知 RAG 服务（简历第 2 条「权限感知检索」）：检索结果实时按 document-service 返回的可访问文档集合过滤
 @Service
 public class PermissionAwareRagService {
     private final KnowledgeBase knowledgeBase;
@@ -25,6 +28,7 @@ public class PermissionAwareRagService {
     public void assertCanIndex(String documentId) { documents.assertDocumentAccess(documentId, true); }
     public void assertCanRead(String documentId) { documents.assertDocumentAccess(documentId, false); }
 
+    // 规范化知识库 ID：空值兜底为 default，并校验只含合法字符
     public String normalizeKnowledgeBaseId(String value) {
         String id = value == null || value.isBlank() ? "default" : value.trim();
         if (!id.matches("[A-Za-z0-9_-]{1,64}")) {
@@ -33,16 +37,19 @@ public class PermissionAwareRagService {
         return id;
     }
 
+    // 向量检索入口：先取更大候选集，再按可访问文档集合过滤并截断到 topK
     public List<Map<String, Object>> search(String query, int topK, String knowledgeBaseId,
                                              DocumentSegmenter.StrategyType strategy) {
         return restrict(knowledgeBase.search(query, candidateSize(topK), strategy, kbFilter(knowledgeBaseId)), topK);
     }
 
+    // 混合检索入口：向量+BM25 召回后按权限过滤
     public List<Map<String, Object>> hybridSearch(String query, int topK, String knowledgeBaseId,
                                                    DocumentSegmenter.StrategyType strategy) {
         return restrict(knowledgeBase.hybridSearch(query, candidateSize(topK), strategy, kbFilter(knowledgeBaseId)), topK);
     }
 
+    // 混合检索 + Rerank 精排，再按权限过滤
     public List<Map<String, Object>> hybridSearchWithRerank(String query, int topK, String knowledgeBaseId,
                                                              Reranker.RerankStrategy rerank,
                                                              DocumentSegmenter.StrategyType strategy) {
@@ -50,6 +57,19 @@ public class PermissionAwareRagService {
                 kbFilter(knowledgeBaseId)), topK);
     }
 
+    /**
+     * Cross-document retrieval keeps the highest-ranked hit from each authorized document first,
+     * then fills remaining slots by score. This prevents one long document from occupying every hit.
+     */
+    // 多样化精排检索：过滤后每个授权文档优先保留最高分命中，避免单一长文档霸占全部结果
+    public List<Map<String, Object>> hybridSearchWithRerankDiverse(String query, int topK, String knowledgeBaseId,
+                                                                    Reranker.RerankStrategy rerank,
+                                                                    DocumentSegmenter.StrategyType strategy) {
+        return restrictDiverse(knowledgeBase.hybridSearchWithRerank(query, candidateSize(topK), rerank, strategy,
+                kbFilter(knowledgeBaseId)), topK);
+    }
+
+    // 返回已建索引且当前用户可访问的文档 ID 列表（按知识库维度过滤）
     public List<String> accessibleIndexedDocumentIds(String knowledgeBaseId) {
         String safeKnowledgeBaseId = normalizeKnowledgeBaseId(knowledgeBaseId);
         Set<String> allowed = new HashSet<>(documents.getAccessibleDocumentIds());
@@ -60,6 +80,7 @@ public class PermissionAwareRagService {
                 .toList();
     }
 
+    // 统计当前用户可访问范围内的文档数、分段数与总字符数
     public Map<String, Object> statistics(String knowledgeBaseId) {
         List<String> ids = accessibleIndexedDocumentIds(knowledgeBaseId);
         long chars = 0;
@@ -73,6 +94,7 @@ public class PermissionAwareRagService {
                 "permissionMode", "document-service-live-scope");
     }
 
+    // 核心权限过滤：仅保留所属文档在可访问集合内的候选结果
     private List<Map<String, Object>> restrict(List<Map<String, Object>> candidates, int topK) {
         Set<String> allowed = new HashSet<>(documents.getAccessibleDocumentIds());
         List<Map<String, Object>> safe = new ArrayList<>();
@@ -88,6 +110,41 @@ public class PermissionAwareRagService {
         return safe;
     }
 
+    // 多样化过滤：先每文档取最高分一条，再用剩余分块补足 topK
+    private List<Map<String, Object>> restrictDiverse(List<Map<String, Object>> candidates, int topK) {
+        Set<String> allowed = new HashSet<>(documents.getAccessibleDocumentIds());
+        List<Map<String, Object>> ranked = new ArrayList<>();
+        for (Map<String, Object> candidate : candidates) {
+            String documentId = sourceDocumentId(candidate);
+            if (documentId != null && allowed.contains(documentId)) {
+                Map<String, Object> enriched = new LinkedHashMap<>(candidate);
+                enriched.put("documentId", documentId);
+                ranked.add(enriched);
+            }
+        }
+
+        int limit = Math.max(1, topK);
+        List<Map<String, Object>> safe = new ArrayList<>();
+        Set<String> representedDocuments = new LinkedHashSet<>();
+        Set<String> representedChunks = new LinkedHashSet<>();
+        for (Map<String, Object> candidate : ranked) {
+            String documentId = sourceDocumentId(candidate);
+            if (representedDocuments.add(documentId)) {
+                safe.add(candidate);
+                representedChunks.add(String.valueOf(candidate.get("id")));
+                if (safe.size() >= limit) return safe;
+            }
+        }
+        for (Map<String, Object> candidate : ranked) {
+            if (representedChunks.add(String.valueOf(candidate.get("id")))) {
+                safe.add(candidate);
+                if (safe.size() >= limit) break;
+            }
+        }
+        return safe;
+    }
+
+    // 从候选结果中解析所属文档 ID（优先取 documentId 字段，其次取 id）
     private String sourceDocumentId(Map<String, Object> candidate) {
         Object documentId = candidate.get("documentId");
         if (documentId != null && !documentId.toString().isBlank()) return documentId.toString();
@@ -95,11 +152,15 @@ public class PermissionAwareRagService {
         return id == null ? null : id.toString();
     }
 
+    // 构造 knowledgeBaseId 过滤条件，限定检索只落在指定知识库内
     private Map<String, Object> kbFilter(String id) {
         Map<String, Object> filter = new HashMap<>();
         filter.put("knowledgeBaseId", normalizeKnowledgeBaseId(id));
         return filter;
     }
 
-    private int candidateSize(int topK) { return Math.max(10, Math.min(50, topK * 8)); }
+    // 放大候选集：多召回一些结果供后续权限过滤，避免过滤后不足 topK
+    // 召回候选只保留足够的权限过滤余量，避免 topK=5 时无意义地重排 40 条以上结果。
+    // Recall@5 需要通过评测集复核；若权限过滤后的命中不足，再将倍数调回 5。
+    private int candidateSize(int topK) { return Math.max(10, Math.min(30, topK * 4)); }
 }

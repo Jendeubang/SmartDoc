@@ -11,10 +11,12 @@ import java.util.List;
  * 文本差异对比工具类
  * 基于LCS（最长公共子序列）算法实现
  */
+// 对应简历第 6 条「企业空间与在线协同」中的版本差异计算。
 public class DiffUtil {
 
     private static final Logger log = LoggerFactory.getLogger(DiffUtil.class);
 
+    // 对比两段文本，按行计算 LCS 并生成新增/删除变更明细与摘要
     public static DocumentCompareVO compareTexts(String originalText, String revisedText) {
         DocumentCompareVO result = new DocumentCompareVO();
         List<DocumentCompareVO.ChangeDetail> changes = new ArrayList<>();

@@ -34,7 +34,14 @@ export const aiApi = {
     },
 
 
-    getModels: () => request.get('/ai/models'),
+    getModels: (config = {}) => request.get('/ai/models', config),
+
+    // 用户自带模型密钥（BYOK）：服务端只返回脱敏信息，明文 Key 不会回显。
+    listProviderCredentials: () => request.get('/ai/provider-credentials'),
+    testProviderCredential: (data) => request.post('/ai/provider-credentials/test', data),
+    saveProviderCredential: (data) => request.post('/ai/provider-credentials', data),
+    deleteProviderCredential: (id) => request.delete(`/ai/provider-credentials/${id}`),
+    setDefaultProviderCredential: (id) => request.put(`/ai/provider-credentials/${id}/default`),
 
     // 开启一个带有记忆的新对话 (返回 conversationId)
     startChat: (userId) => {
@@ -90,11 +97,11 @@ export const aiApi = {
     getSegmentStrategies: () => request.get('/ai/rag/segment/strategies'),
     // 带有分段策略的文档索引
     indexWithSegment: (documentId, content, strategy) => request.post(`/ai/agent/knowledge/index/segment?documentId=${encodeURIComponent(documentId)}&strategy=${encodeURIComponent(strategy || 'AUTO')}`, content, { headers: { 'Content-Type': 'text/plain' } }),
-    getKnowledgeJobs: () => request.get('/ai/agent/knowledge/jobs'),
+    getKnowledgeJobs: (config = {}) => request.get('/ai/agent/knowledge/jobs', config),
     retryKnowledgeJob: (jobId, content) => request.post(`/ai/agent/knowledge/jobs/${jobId}/retry`, content, { headers: { 'Content-Type': 'text/plain' } }),
     // 获取已分段的列表
     getDocumentSegments: (documentId) => request.get(`/ai/rag/document/${documentId}/segments`),
-    getIndexedDocuments: () => request.get('/ai/rag/documents'),
+    getIndexedDocuments: (config = {}) => request.get('/ai/rag/documents', config),
     removeIndexedDocument: (documentId) => request.delete(`/ai/rag/document/${documentId}`),
     getIndexMetadata: (documentId) => request.get(`/ai/rag/document/${documentId}/metadata`),
     // 获取统计信息

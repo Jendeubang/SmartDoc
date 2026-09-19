@@ -40,6 +40,7 @@ public class DocumentVectorizer {
      * @param text 文本内容
      * @return 向量表示
      */
+    // 单条文本向量化：调用 EmbeddingModel 生成向量表示
     public float[] vectorize(String text) {
         log.debug("开始向量化文本，长度={}", text.length());
 
@@ -58,6 +59,7 @@ public class DocumentVectorizer {
      * @param texts 文本列表
      * @return 向量列表
      */
+    // 批量向量化：一次调用生成多条文本的向量
     public float[][] vectorizeBatch(String[] texts) {
         log.info("批量向量化，数量={}", texts.length);
 
@@ -81,6 +83,7 @@ public class DocumentVectorizer {
      * 获取向量维度
      * @return 向量维度
      */
+    // 探测向量维度：向量化样例文本后取其长度，失败时回退默认值 1024
     public int getVectorDimension() {
         try {
             float[] sample = vectorize("test");

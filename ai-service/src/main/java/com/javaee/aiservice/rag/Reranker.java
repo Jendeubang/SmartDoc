@@ -102,6 +102,7 @@ public class Reranker {
      * @param topK 返回数量
      * @return 重排序后的结果
      */
+    // 重排序入口：按策略计算重排分并与原始分融合，按最终分数降序取 topK
     public List<Map<String, Object>> rerank(String query, List<Map<String, Object>> candidates, 
                                             RerankStrategy strategy, int topK) {
         if (candidates == null || candidates.isEmpty() || topK <= 0) {
@@ -171,6 +172,7 @@ public class Reranker {
     /**
      * 计算BM25分数（简化实现）
      */
+    // BM25 关键词相关性打分，结果归一化到 [0,1]
     private float computeBM25(String query, String document) {
         if (query == null || document == null) {
             return 0.0f;
@@ -209,6 +211,7 @@ public class Reranker {
         return Math.min(1.0f, score / queryTerms.length);
     }
 
+    // 调用 DashScope Rerank API 做交叉编码器精排；未启用或失败时降级到本地打分
     private CrossEncoderScores computeCrossEncoderScores(String query, List<Map<String, Object>> candidates) {
         if (!rerankEnabled || isBlank(apiKey) || isBlank(query)) {
             return new CrossEncoderScores(computeLocalCrossEncoderScores(query, candidates), "local-fallback");
@@ -253,6 +256,7 @@ public class Reranker {
         return new CrossEncoderScores(computeLocalCrossEncoderScores(query, candidates), "local-fallback");
     }
 
+    // 解析 DashScope 返回的相关性分数（relevance_score），按 index 回填到对应位置
     private List<Float> parseDashScopeScores(String body, int expectedSize) throws Exception {
         JsonNode results = objectMapper.readTree(body).path("output").path("results");
         if (!results.isArray()) {
@@ -293,6 +297,7 @@ public class Reranker {
         return scores;
     }
 
+    // 本地兜底打分：关键词命中率叠加关键词出现在文档开头的位置权重
     private float computeLocalCrossEncoder(String query, String document) {
         if (query == null || document == null) {
             return 0.0f;
@@ -375,6 +380,7 @@ public class Reranker {
         return Math.max(0.0f, Math.min(1.0f, score));
     }
 
+    // 分词：含空格按空格切分；无空格的中文按单个字符切分
     private String[] tokenize(String value) {
         String normalized = value == null ? "" : value.trim();
         if (normalized.isEmpty()) {

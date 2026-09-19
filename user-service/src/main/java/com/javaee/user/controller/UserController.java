@@ -1,122 +1,98 @@
 package com.javaee.user.controller;
 
-/**
- * 【简历：用户服务 API】
- * 提供用户注册、登录、信息管理等接口。
- */
-
+import com.javaee.common.exception.BusinessException;
 import com.javaee.common.model.Result;
-import com.javaee.user.dto.LoginDTO;
-import com.javaee.user.dto.RegisterDTO;
-import com.javaee.user.dto.UserProfileUpdateDTO;
+import com.javaee.common.utils.JwtUtils;
+import com.javaee.user.dto.*;
 import com.javaee.user.entity.User;
 import com.javaee.user.service.UserService;
-import com.javaee.user.vo.LoginVO;
-import com.javaee.user.vo.UserVO;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.extern.slf4j.Slf4j;
+import com.javaee.user.vo.*;
 import org.springframework.beans.BeanUtils;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
-/**
- * @description: 用户控制器
- */
-@Slf4j
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
 @RestController
 @RequestMapping("/api/users")
-@Tag(name = "用户管理", description = "用户登录、注册、信息管理等接口")
 public class UserController {
+    private final UserService users;
+    public UserController(UserService users) { this.users = users; }
 
-    @Autowired
-    private UserService userService;
-
-    /**
-     * 用户登录
-     * @param loginDTO 登录信息
-     * @return 登录结果
-     */
     @PostMapping("/login")
-    @Operation(summary = "用户登录", description = "根据用户名和密码进行登录，返回访问令牌和刷新令牌")
-    public Result<LoginVO> login(@RequestBody LoginDTO loginDTO) {
-        log.info("用户登录: {}", loginDTO.getUsername());
-        LoginVO loginVO = userService.login(loginDTO);
-        return Result.success(loginVO);
-    }
+    public Result<LoginVO> login(@RequestBody LoginDTO dto) { return Result.success(users.login(dto)); }
 
-    /**
-     * 用户注册
-     * @param registerDTO 注册信息
-     * @return 注册结果
-     */
     @PostMapping("/register")
-    @Operation(summary = "用户注册", description = "创建新用户，返回用户信息")
-    public Result<UserVO> register(@RequestBody RegisterDTO registerDTO) {
-        log.info("用户注册: {}", registerDTO.getUsername());
-        UserVO userVO = userService.register(registerDTO);
-        return Result.success(userVO);
-    }
+    public Result<UserVO> register(@RequestBody RegisterDTO dto) { return Result.success(users.register(dto)); }
 
-    /**
-     * 获取用户信息
-     * @param id 用户ID
-     * @return 用户信息
-     */
     @GetMapping("/{id:\\d+}")
-    @Operation(summary = "获取用户信息", description = "根据用户ID获取用户详细信息")
-    public Result<UserVO> getUserById(@Parameter(description = "用户ID") @PathVariable Long id) {
-        log.info("获取用户信息: {}", id);
-        UserVO userVO = userService.getUserById(id);
-        return Result.success(userVO);
+    public Result<UserVO> getUserById(@PathVariable Long id) { return Result.success(users.getUserById(id)); }
+
+    @PutMapping("/profile")
+    public Result<UserVO> updateProfile(@RequestBody UserProfileUpdateDTO dto) {
+        return Result.success(users.updateProfile(currentUserId(), dto));
     }
 
-    /**
-     * 刷新令牌
-     * @param refreshToken 刷新令牌
-     * @return 新的访问令牌
-     */
-    @PutMapping("/profile")
-    @Operation(summary = "更新个人资料", description = "更新当前登录用户的昵称、个性签名和头像文件标识")
-    public Result<UserVO> updateProfile(
-            @RequestHeader(value = "X-User-Id", required = false) Long routedUserId,
-            @RequestBody UserProfileUpdateDTO dto) {
-        if (routedUserId == null) {
-            throw new com.javaee.common.exception.BusinessException("用户未认证，请先登录");
-        }
-        return Result.success(userService.updateProfile(routedUserId, dto));
-    }
     @GetMapping("/lookup")
-    @Operation(summary = "根据用户名查询用户", description = "用于文档协作授权时查找协作者")
-    public Result<UserVO> getUserByUsername(@Parameter(description = "用户名") @RequestParam String username) {
-        log.info("根据用户名查询用户: {}", username);
-        User user = userService.getUserByUsername(username);
-        if (user == null) {
-            throw new com.javaee.common.exception.BusinessException(com.javaee.common.constant.ErrorCodeEnum.USER_NOT_FOUND);
-        }
-        UserVO userVO = new UserVO();
-        BeanUtils.copyProperties(user, userVO);
-        return Result.success(userVO);
+    public Result<UserVO> getUserByUsername(@RequestParam String username) {
+        User user = users.getUserByUsername(username);
+        if (user == null) throw new BusinessException("用户不存在");
+        UserVO result = new UserVO(); BeanUtils.copyProperties(user, result); return Result.success(result);
+    }
+
+    @GetMapping("/directory")
+    public Result<List<UserDirectoryVO>> searchDirectory(@RequestParam(required = false, defaultValue = "") String keyword) {
+        String normalized = keyword == null ? "" : keyword.trim();
+        return Result.success(users.searchDirectory(normalized.substring(0, Math.min(50, normalized.length()))));
     }
 
     @PostMapping("/refresh")
-    @Operation(summary = "刷新令牌", description = "使用刷新令牌获取新的访问令牌")
-    public Result<String> refreshToken(@Parameter(description = "刷新令牌") @RequestParam String refreshToken) {
-        log.info("刷新令牌");
-        String accessToken = userService.refreshToken(refreshToken);
-        return Result.success(accessToken);
+    public Result<RefreshTokenVO> refresh(@RequestBody RefreshTokenDTO dto) {
+        return Result.success(users.refreshToken(dto.getRefreshToken()));
+    }
+
+    @PostMapping("/logout")
+    public Result<Void> logout(@RequestHeader(value = "Authorization", required = false) String authorization,
+                               @RequestBody(required = false) RefreshTokenDTO dto) {
+        String access = authorization != null && authorization.startsWith("Bearer ") ? authorization.substring(7) : null;
+        users.logout(access, dto == null ? null : dto.getRefreshToken());
+        return Result.success();
+    }
+
+    @PostMapping("/{id}/force-logout")
+    public Result<Void> forceLogout(@PathVariable Long id) {
+        users.forceLogout(currentUserId(), id); return Result.success();
+    }
+
+    @PostMapping("/password/forgot")
+    public Result<Map<String, Object>> forgotPassword(@RequestBody ForgotPasswordDTO dto) {
+        String token = users.requestPasswordReset(dto.getAccount());
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("message", "如果账号存在，密码重置说明已发送到注册邮箱");
+        if (token != null) response.put("debugResetToken", token);
+        return Result.success(response);
+    }
+
+    @PostMapping("/password/reset")
+    public Result<Void> resetPassword(@RequestBody ResetPasswordDTO dto) {
+        users.resetPassword(dto.getToken(), dto.getNewPassword()); return Result.success();
     }
 
     /**
-     * 登出
-     * @return 登出结果
+     * The gateway's X-User-Id header is only a downstream transport detail.
+     * Authorization decisions must use the identity established by the JWT
+     * authentication filter, otherwise a direct service-port request could
+     * forge the operator by sending a different header.
      */
-    @PostMapping("/logout")
-    @Operation(summary = "用户登出", description = "用户登出操作")
-    public Result<Void> logout() {
-        log.info("用户登出");
-        // 前端清除本地存储的令牌
-        return Result.success();
+    private Long currentUserId() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()
+                || !(authentication.getPrincipal() instanceof Number principal)) {
+            throw new BusinessException("用户未认证，请先登录");
+        }
+        return principal.longValue();
     }
 }

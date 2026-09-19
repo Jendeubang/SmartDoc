@@ -1,6 +1,7 @@
 package com.javaee.documentservice.config;
 
 import com.javaee.common.utils.JwtUtils;
+import com.javaee.common.config.security.SessionTokenValidator;
 import com.javaee.documentservice.entity.Document;
 import com.javaee.documentservice.mapper.DocumentMapper;
 import com.javaee.documentservice.service.DocumentAccessService;
@@ -22,10 +23,13 @@ public class WebSocketAuthConfig implements WebSocketMessageBrokerConfigurer {
 
     private final DocumentMapper documentMapper;
     private final DocumentAccessService documentAccessService;
+    private final SessionTokenValidator sessions;
 
-    public WebSocketAuthConfig(DocumentMapper documentMapper, DocumentAccessService documentAccessService) {
+    public WebSocketAuthConfig(DocumentMapper documentMapper, DocumentAccessService documentAccessService,
+                               SessionTokenValidator sessions) {
         this.documentMapper = documentMapper;
         this.documentAccessService = documentAccessService;
+        this.sessions = sessions;
     }
 
     @Override
@@ -49,8 +53,9 @@ public class WebSocketAuthConfig implements WebSocketMessageBrokerConfigurer {
             throw new IllegalArgumentException("WebSocket authentication required");
         }
         String token = authorization.substring(7);
-        if (!JwtUtils.validateToken(token)) throw new IllegalArgumentException("Invalid WebSocket token");
-        Long userId = JwtUtils.getUserId(token);
+        Long userId;
+        try { userId = sessions.requireActiveAccessToken(token); }
+        catch (SecurityException exception) { throw new IllegalArgumentException("Invalid or revoked WebSocket token"); }
         String username = JwtUtils.getUsername(token);
         accessor.setUser(new CollaborationPrincipal(String.valueOf(userId), username));
         accessor.getSessionAttributes().put("userId", String.valueOf(userId));

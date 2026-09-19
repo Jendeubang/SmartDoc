@@ -42,6 +42,8 @@ import java.util.concurrent.TimeUnit;
  * 负责异步管道: 解析 -> 切分 -> 标签/分类 -> 向量化 -> 写库 -> 质量评估。
  * 支持权限隔离、状态查询、失败重试。
  */
+// 类职责：知识索引管理 Agent，对应简历第3条「知识索引管理 Agent」——
+// 异步索引、内容 Hash 去重、旧索引清理、失败重试、任务状态查询与质量评估。
 @Component
 public class KnowledgeIndexAgent {
 
@@ -96,6 +98,26 @@ public class KnowledgeIndexAgent {
         return job.snapshot();
     }
 
+    /** Avoids submitting duplicate work while the same document is already being indexed. */
+    public Map<String, Object> indexDocumentAsyncIfNeeded(String documentId, String content, Map<String, Object> metadata) {
+        String knowledgeBaseId = metadata != null
+                ? String.valueOf(metadata.getOrDefault("knowledgeBaseId", "default")) : "default";
+        Map<String, Object> existing = knowledgeBase.getDocumentMetadata(documentId);
+        if (existing != null && !existing.isEmpty()
+                && knowledgeBaseId.equals(String.valueOf(existing.getOrDefault("knowledgeBaseId", "default")))) {
+            return Map.of("status", KnowledgeIndexStatus.INDEXED.name(), "documentId", documentId,
+                    "knowledgeBaseId", knowledgeBaseId, "reused", true);
+        }
+        KnowledgeIndexJob active = jobs.values().stream()
+                .filter(job -> documentId.equals(job.getDocumentId()))
+                .filter(job -> knowledgeBaseId.equals(job.getKnowledgeBaseId()))
+                .filter(job -> job.getStatus() != KnowledgeIndexStatus.FAILED
+                        && job.getStatus() != KnowledgeIndexStatus.INDEXED)
+                .findFirst().orElse(null);
+        if (active != null) return active.snapshot();
+        return indexDocumentAsync(documentId, content, metadata);
+    }
+
     Future<?> scheduleAsync(KnowledgeIndexJob job, String content, Map<String, Object> metadata) {
         return indexExecutor.submit(() -> runPipeline(job, content, metadata));
     }
@@ -109,6 +131,7 @@ public class KnowledgeIndexAgent {
         return persisted.isEmpty() ? Map.of("status", "not_found", "jobId", jobId) : persisted;
     }
 
+    // 失败任务重试：将 FAILED 任务重置为 PENDING 后重新提交执行，未失败的任务直接返回当前状态。
     public Map<String, Object> retryJob(String jobId, String content, Map<String, Object> metadata) {
         KnowledgeIndexJob job = jobs.get(jobId);
         if (job == null) {
@@ -133,12 +156,15 @@ public class KnowledgeIndexAgent {
         String knowledgeBaseId = metadata != null
                 ? String.valueOf(metadata.getOrDefault("knowledgeBaseId", "default"))
                 : "default";
-        KnowledgeIndexJob job = new KnowledgeIndexJob(UUID.randomUUID().toString(), documentId, userId, knowledgeBaseId);
+        String organizationId = metadata != null && metadata.get("organizationId") != null
+                ? String.valueOf(metadata.get("organizationId")) : null;
+        KnowledgeIndexJob job = new KnowledgeIndexJob(UUID.randomUUID().toString(), documentId, userId, knowledgeBaseId, organizationId);
         jobs.put(job.getJobId(), job);
         saveAndPublish(job, "knowledge_created", "索引任务已创建");
         return job;
     }
 
+    // 核心索引管道：解析 → Hash 去重 → 元数据增强 → 分段向量化写库 → 质量评估，失败时记录错误状态。
     void runPipeline(KnowledgeIndexJob job, String content, Map<String, Object> metadata) {
         try {
             job.incrementAttempts();
@@ -170,6 +196,7 @@ public class KnowledgeIndexAgent {
             Map<String, Object> enriched = sanitizeMetadata(metadata);
             enriched.putIfAbsent("userId", job.getUserId());
             enriched.putIfAbsent("knowledgeBaseId", job.getKnowledgeBaseId());
+            if (job.getOrganizationId() != null) enriched.putIfAbsent("organizationId", job.getOrganizationId());
             enriched.put("tags", String.join(",", generateTags(content)));
             enriched.put("category", classifyDocument(content));
             enriched.put("contentHash", hash);
@@ -250,6 +277,7 @@ public class KnowledgeIndexAgent {
         return jobs.remove(jobId) != null || deletePersistedJob(jobId);
     }
 
+    // 持久化任务快照并向 Agent 进度广播器发布进度事件。
     private void saveAndPublish(KnowledgeIndexJob job, String eventType, String message) {
         if (job == null) {
             return;
@@ -265,6 +293,7 @@ public class KnowledgeIndexAgent {
         }
     }
 
+    // 将任务快照写入 Redis（字符串键 + 全量/按用户 ZSet），实现状态持久化与重启后恢复。
     private void persistJob(Map<String, Object> snapshot) {
         if (redisTemplate == null || snapshot == null || snapshot.get("jobId") == null) {
             return;
@@ -299,6 +328,7 @@ public class KnowledgeIndexAgent {
     }
 
     @SuppressWarnings("unchecked")
+    // 从 Redis 快照重建任务对象，用于系统重启后恢复任务状态。
     private KnowledgeIndexJob restoreJob(Map<String, Object> snapshot) {
         if (snapshot == null || snapshot.isEmpty()) {
             return null;
@@ -307,7 +337,8 @@ public class KnowledgeIndexAgent {
                 String.valueOf(snapshot.get("jobId")),
                 String.valueOf(snapshot.get("documentId")),
                 String.valueOf(snapshot.get("userId")),
-                String.valueOf(snapshot.getOrDefault("knowledgeBaseId", "default"))
+                String.valueOf(snapshot.getOrDefault("knowledgeBaseId", "default")),
+                snapshot.get("organizationId") == null ? null : String.valueOf(snapshot.get("organizationId"))
         );
         Object status = snapshot.get("status");
         if (status != null) {
@@ -381,6 +412,7 @@ public class KnowledgeIndexAgent {
         }
     }
 
+    // 知识库语义检索：调用向量库搜索并按用户/知识库归属过滤结果。
     public List<Map<String, Object>> searchKnowledge(String query, int topK, String userId, String knowledgeBaseId) {
         log.info("搜索知识库: query={}, userId={}", query, userId);
         try {
@@ -394,6 +426,7 @@ public class KnowledgeIndexAgent {
         }
     }
 
+    // 旧索引清理：同时删除向量库中的向量与知识库中的文档元数据。
     public Map<String, Object> deleteIndex(String documentId) {
         log.info("删除文档索引: documentId={}", documentId);
         try {
@@ -485,6 +518,7 @@ public class KnowledgeIndexAgent {
         return Arrays.stream(needles).anyMatch(haystack::contains);
     }
 
+    // 质量评估：基于文档长度与预估分段数计算索引质量分数。
     Map<String, Object> evaluateQuality(String documentId, String content) {
         Map<String, Object> quality = new LinkedHashMap<>();
         int length = content.length();

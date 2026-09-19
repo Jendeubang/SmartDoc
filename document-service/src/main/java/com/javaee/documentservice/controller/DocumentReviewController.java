@@ -20,6 +20,8 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDateTime;
 import java.util.*;
 
+// 文档审阅/建议模式接口：提供修订建议的提交、列表、处理以及版本差异对比。
+// 对应简历第 6 条「企业空间与在线协同」中的建议模式与版本差异。
 @RestController
 @RequestMapping("/api/documents/{documentId}")
 public class DocumentReviewController {
@@ -39,13 +41,15 @@ public class DocumentReviewController {
         this.access = access; this.documentService = documentService; this.users = users; this.audit = audit;
     }
 
+    // 提交修订建议：记录原文、建议文本与位置区间，状态为待处理
     @PostMapping("/suggestions")
     public Result<DocumentSuggestion> createSuggestion(@PathVariable String documentId, @RequestBody Map<String, Object> body) {
-        Long userId = users.getRequiredUserId(); Document document = requireDocument(documentId); access.assertCanRead(document, userId);
+        Long userId = users.getRequiredUserId(); Document document = requireDocument(documentId); access.assertCanComment(document, userId);
         String suggested = text(body.get("suggestedText"));
         if (suggested.isBlank()) throw new BusinessException("建议内容不能为空");
         DocumentSuggestion item = new DocumentSuggestion();
         item.setDocumentId(documentId); item.setUserId(userId); item.setOriginalText(text(body.get("originalText")));
+        item.setOrganizationId(document.getOrganizationId());
         item.setSuggestedText(suggested); item.setReason(text(body.get("reason"))); item.setStatus("pending");
         item.setStartOffset(integer(body.get("startOffset"))); item.setEndOffset(integer(body.get("endOffset")));
         item.setCreateTime(LocalDateTime.now()); suggestions.insert(item);
@@ -53,6 +57,7 @@ public class DocumentReviewController {
         return Result.success(item);
     }
 
+    // 按状态列出文档的修订建议
     @GetMapping("/suggestions")
     public Result<List<DocumentSuggestion>> listSuggestions(@PathVariable String documentId,
                                                              @RequestParam(required = false) String status) {
@@ -63,6 +68,7 @@ public class DocumentReviewController {
         return Result.success(suggestions.selectList(query));
     }
 
+    // 处理建议：接受则把建议文本应用到正文，否则拒绝；写入审阅人与意见
     @PostMapping("/suggestions/{suggestionId}/decision")
     @Transactional
     public Result<Void> decideSuggestion(@PathVariable String documentId, @PathVariable String suggestionId,
@@ -87,6 +93,7 @@ public class DocumentReviewController {
         return Result.success();
     }
 
+    // 对比两个版本的差异（按行 LCS 算法）
     @GetMapping("/versions/diff")
     public Result<Map<String, Object>> versionDiff(@PathVariable String documentId,
                                                    @RequestParam Integer from,
@@ -98,6 +105,7 @@ public class DocumentReviewController {
         return Result.success(diff(left, right));
     }
 
+    // 行级差异计算：动态规划求 LCS，回溯生成新增/删除/不变的行
     private Map<String, Object> diff(DocumentVersion left, DocumentVersion right) {
         String[] a = Optional.ofNullable(left.getContent()).orElse("").split("\\R", -1);
         String[] b = Optional.ofNullable(right.getContent()).orElse("").split("\\R", -1);
@@ -118,6 +126,7 @@ public class DocumentReviewController {
         Map<String, Object> line = new LinkedHashMap<>(); line.put("type", type); line.put("content", content);
         line.put("oldLine", oldLine); line.put("newLine", newLine); return line;
     }
+    // 按偏移或原文匹配将建议文本替换进正文
     private String applySuggestion(String content, DocumentSuggestion s) {
         Integer start = s.getStartOffset(), end = s.getEndOffset();
         if (start != null && end != null && start >= 0 && end >= start && end <= content.length())

@@ -92,7 +92,7 @@ const strength = reactive({
 // 实时检查函数
 const checkPasswordStrength = () => {
   const pwd = form.value.password
-  strength.length = pwd.length >= 8
+  strength.length = pwd.length >= 10
   strength.upper = REGEX.HAS_UPPER.test(pwd)
   strength.lower = REGEX.HAS_LOWER.test(pwd)
   strength.mixed = REGEX.HAS_NUMBER.test(pwd) && REGEX.HAS_SPECIAL.test(pwd)

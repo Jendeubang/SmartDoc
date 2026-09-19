@@ -28,7 +28,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -77,6 +79,13 @@ public class DocumentServiceImpl implements DocumentService {
     @Transactional
     public DocumentVO create(DocumentCreateDTO dto, Long userId) {
         enterprisePermissionService.assertCanPlace(dto.getOrganizationId(), dto.getDepartmentId(), dto.getFolderId(), userId);
+        // Uploading the same filename into the same personal/enterprise folder replaces the
+        // current document instead of creating a second document and a second RAG source.
+        // The stable document id lets KnowledgeIndexAgent remove old segments on re-index.
+        Document existing = findLatestActiveDocumentWithSameName(dto, userId);
+        if (existing != null) {
+            return overwriteUploadedDocument(existing, dto, userId);
+        }
         Document document = new Document();
         document.setTitle(dto.getTitle());
         document.setFileId(dto.getFileId());
@@ -153,6 +162,36 @@ public class DocumentServiceImpl implements DocumentService {
         vo.setContent(content);
         enterpriseAuditService.record(document.getOrganizationId(), userId, "DOCUMENT_CREATE", "document", document.getId(), document.getTitle());
         return vo;
+    }
+
+    private Document findLatestActiveDocumentWithSameName(DocumentCreateDTO dto, Long userId) {
+        if (dto.getTitle() == null || dto.getTitle().isBlank()) return null;
+        return documentMapper.selectByUserId(userId).stream()
+                .filter(document -> "active".equalsIgnoreCase(document.getStatus()))
+                .filter(document -> dto.getTitle().trim().equals(document.getTitle()))
+                .filter(document -> Objects.equals(blankToNull(dto.getOrganizationId()), blankToNull(document.getOrganizationId())))
+                .filter(document -> Objects.equals(blankToNull(dto.getDepartmentId()), blankToNull(document.getDepartmentId())))
+                .filter(document -> Objects.equals(blankToNull(dto.getFolderId()), blankToNull(document.getFolderId())))
+                .max(Comparator.comparing(Document::getUpdateTime,
+                        Comparator.nullsFirst(Comparator.naturalOrder())))
+                .orElse(null);
+    }
+
+    private DocumentVO overwriteUploadedDocument(Document document, DocumentCreateDTO dto, Long userId) {
+        documentAccessService.assertCanWrite(document, userId);
+        if (dto.getFileId() == null || dto.getFileId().isBlank()) {
+            throw new BusinessException("覆盖上传缺少文件标识");
+        }
+        document.setFileId(dto.getFileId());
+        if (dto.getCategory() != null) document.setCategory(dto.getCategory());
+        document.setParseStatus("parsing");
+        document.setStatus("active");
+        document.setUpdateTime(LocalDateTime.now());
+        documentMapper.updateById(document);
+        DocumentVO updated = reparseSource(document.getId(), userId);
+        enterpriseAuditService.record(document.getOrganizationId(), userId, "DOCUMENT_OVERWRITE", "document",
+                document.getId(), "同名文件覆盖上传：" + document.getTitle());
+        return updated;
     }
 
     /**
@@ -399,6 +438,35 @@ public class DocumentServiceImpl implements DocumentService {
     }
 
     @Override
+    public String getOriginalSourceContent(String id, Long userId) {
+        Document document = documentMapper.selectById(id);
+        if (document == null) {
+            throw new BusinessException("文档不存在");
+        }
+        documentAccessService.assertCanRead(document, userId);
+
+        if (document.getFileId() != null && !document.getFileId().isBlank()) {
+            try {
+                ResponseEntity<String> fileNameResponse = fileServiceClient.getFileName(document.getFileId());
+                ResponseEntity<byte[]> fileResponse = fileServiceClient.downloadFile(document.getFileId());
+                byte[] bytes = fileResponse.getBody();
+                String fileName = fileNameResponse.getBody();
+                String content = DocumentParserUtil.parseDocument(bytes,
+                        fileName == null || fileName.isBlank() ? document.getTitle() : fileName);
+                if (content != null && !content.isBlank()) {
+                    return content;
+                }
+            } catch (Exception exception) {
+                log.warn("读取原始上传正文失败，回退到当前文档正文: documentId={}, fileId={}, error={}",
+                        id, document.getFileId(), exception.getMessage());
+            }
+        }
+
+        DocumentVO current = getById(id, userId);
+        return current.getContent() == null ? "" : current.getContent();
+    }
+
+    @Override
     public DocumentVO getStorageLocation(String id, Long userId) {
         Document document = documentMapper.selectById(id);
         if (document == null) {
@@ -498,6 +566,7 @@ public class DocumentServiceImpl implements DocumentService {
     private void saveVersion(Document document, String changeLog, String content) {
         DocumentVersion version = new DocumentVersion();
         version.setDocumentId(document.getId());
+        version.setOrganizationId(document.getOrganizationId());
         version.setVersionNumber(document.getVersion());
         version.setTitle(document.getTitle());
         version.setContent(content);
@@ -526,6 +595,7 @@ public class DocumentServiceImpl implements DocumentService {
         vo.setOrganizationId(document.getOrganizationId());
         vo.setDepartmentId(document.getDepartmentId());
         vo.setFolderId(document.getFolderId());
+        vo.setEnterpriseAccessLevel(document.getEnterpriseAccessLevel());
         vo.setBucketName(storageBucketName(document));
         vo.setObjectName(storageObjectName(document));
         vo.setCategory(document.getCategory());

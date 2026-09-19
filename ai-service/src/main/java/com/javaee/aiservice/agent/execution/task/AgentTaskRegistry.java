@@ -25,6 +25,7 @@ import java.util.concurrent.TimeUnit;
  * 支持按 traceId 查询、按 userId 列出、取消标记等操作。
  * 生产环境建议改造为持久化存储（DB / Redis）。
  */
+// 类职责：Agent 任务快照注册表（对应简历第1条「结合 Redis 实现任务状态持久化」）——把任务状态（plan/toolResults/timeline）同时存内存与 Redis，支持按 traceId 查询、按用户列出、取消标记与断点续跑。
 @Component
 public class AgentTaskRegistry {
 
@@ -40,6 +41,7 @@ public class AgentTaskRegistry {
     @Autowired(required = false)
     private RedisTemplate<String, Object> redisTemplate;
 
+    // 保存任务快照：写入内存并持久化到 Redis，用 FIFO 队列控制内存只保留最近 200 条。
     public void save(String traceId, Map<String, Object> snapshot) {
         if (traceId == null || snapshot == null) {
             return;
@@ -58,6 +60,7 @@ public class AgentTaskRegistry {
         }
     }
 
+    // 查询任务快照：先查内存，未命中再从 Redis 加载（支撑断点续跑）并回填本地缓存。
     public Map<String, Object> get(String traceId) {
         Map<String, Object> local = tasks.get(traceId);
         if (local != null) {
@@ -71,6 +74,7 @@ public class AgentTaskRegistry {
         return Collections.emptyMap();
     }
 
+    // 按审批 token 反查任务快照：先扫描内存中的 pendingApproval，再回退到 Redis 全量列表查找。
     public Map<String, Object> findByApprovalToken(String token) {
         if (token == null || token.isBlank()) {
             return Collections.emptyMap();
@@ -110,6 +114,7 @@ public class AgentTaskRegistry {
         return matched;
     }
 
+    // 取消任务：仅对尚未进入终态（success/cancelled/error）的任务打取消标记并持久化。
     public boolean cancel(String traceId) {
         Map<String, Object> snapshot = tasks.get(traceId);
         if (snapshot == null) {
@@ -156,6 +161,7 @@ public class AgentTaskRegistry {
         return false;
     }
 
+    // 持久化到 Redis：任务详情写入带 TTL 的字符串键，traceId 同步加入全局与用户维度的 ZSet（按保存时间排序）。
     private void persist(String traceId, Map<String, Object> snapshot) {
         if (redisTemplate == null) {
             return;
@@ -189,6 +195,7 @@ public class AgentTaskRegistry {
         return Collections.emptyMap();
     }
 
+    // 从 Redis ZSet 按保存时间倒序取任务 ID，再逐个加载完整快照返回。
     private List<Map<String, Object>> listFromRedis(String zsetKey) {
         if (redisTemplate == null) {
             return List.of();

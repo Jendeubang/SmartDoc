@@ -27,6 +27,7 @@ import java.util.Map;
 /**
  * Reflects on each execution round and produces structured next-step decisions.
  */
+// 类职责：Agent 反思器（对应简历第1条「反思重规划」）——构造反思提示词让 LLM 判断任务是否完成、是否需要重规划并产出修订计划；LLM 失败时降级为启发式反思。
 @Service
 public class AgentReflectionService {
 
@@ -40,6 +41,7 @@ public class AgentReflectionService {
     @Autowired
     private AgentToolRegistry toolRegistry;
 
+    // 核心入口：对每一轮执行结果做反思评估，先调用 LLM 解析结构化决策，失败则回退到启发式反思。
     public AgentReflection reflect(AgentExecutionRequest request,
                                    List<AgentPlanStep> plan,
                                    List<AgentToolResult> results,
@@ -63,6 +65,7 @@ public class AgentReflectionService {
         }
     }
 
+    // 构造反思提示词：把工具清单、用户任务、已执行计划、工具结果和上下文拼进模板，要求 LLM 只输出一个 JSON 决策对象。
     private String buildReflectionPrompt(AgentExecutionRequest request,
                                          List<AgentPlanStep> plan,
                                          List<AgentToolResult> results,
@@ -124,6 +127,7 @@ public class AgentReflectionService {
                 safeJson(results), safeJson(context));
     }
 
+    // 解析 LLM 返回的 JSON，映射为 AgentReflection 决策对象（complete/continueExecution/requiresReplan 等字段）。
     private AgentReflection parseReflection(String raw, int iteration) throws Exception {
         Map<String, Object> map = objectMapper.readValue(stripObjectJson(raw), new TypeReference<>() {});
         AgentReflection reflection = new AgentReflection();
@@ -144,6 +148,7 @@ public class AgentReflectionService {
         return reflection;
     }
 
+    // 归一化/校正 LLM 决策：结合轮次上限、最后一步工具结果状态等约束修正矛盾指令，保证决策可执行。
     private void normalizeDecision(AgentReflection reflection,
                                    AgentExecutionRequest request,
                                    List<AgentToolResult> results,
@@ -182,6 +187,7 @@ public class AgentReflectionService {
         }
     }
 
+    // 启发式反思（兜底）：LLM 不可用时，按最后一步工具结果的信号（需用户操作/出错/是否已产出答案）给出保守决策。
     private AgentReflection heuristicReflection(int iteration, int maxIterations, AgentToolResult last, String reason) {
         AgentReflection reflection = new AgentReflection();
         reflection.setIteration(iteration);
@@ -271,6 +277,7 @@ public class AgentReflectionService {
         return steps;
     }
 
+    // 过滤修订计划：把 LLM 生成的、注册中心不存在的工具名替换为 direct-answer，保证计划可执行。
     private List<AgentPlanStep> filterUsablePlan(List<AgentPlanStep> steps) {
         List<AgentPlanStep> usable = new ArrayList<>();
         for (AgentPlanStep step : steps) {

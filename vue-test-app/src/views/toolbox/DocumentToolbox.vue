@@ -13,7 +13,7 @@
 
     <section class="toolbox-hero">
       <div class="hero-copy"><span class="eyebrow">SMART DOCUMENT WORKSPACE</span><h2>从内容优化，到交付输出</h2><p>选择一份已有文档后，可直接保存处理结果；未选择时也可以把文本粘贴进来试用。</p></div>
-      <div class="hero-stats"><div><strong>{{ documents.length }}</strong><span>可用文档</span></div><div><strong>{{ completedCount }}</strong><span>已执行操作</span></div><div><strong>13</strong><span>工具能力</span></div></div>
+      <div class="hero-stats"><div><strong>{{ documents.length }}</strong><span>可用文档</span></div><div><strong>{{ completedCount }}</strong><span>已执行操作</span></div><div><strong>{{ availableToolCount }}</strong><span>可用工具</span></div></div>
     </section>
 
     <section class="workspace-grid">
@@ -33,15 +33,16 @@
       <main class="tools-pane">
         <div class="pane-heading"><div><span class="pane-kicker">02 / 选择能力</span><h3>工具矩阵</h3></div><span class="selection-hint">{{ selectedTool ? selectedTool.name : '请选择一个工具' }}</span></div>
         <div class="tool-groups">
-          <section v-for="group in toolGroups" :key="group.name" class="tool-group"><div class="group-label"><span :style="{ background: group.color }"></span>{{ group.name }}</div><div class="tool-card-grid"><button v-for="tool in group.items" :key="tool.id" class="tool-card" :class="{ active: activeToolId === tool.id }" @click="tool.id === 'quiz' ? router.push('/quiz') : activeToolId = tool.id"><span class="tool-icon" :style="{ background: tool.tint, color: tool.color }"><el-icon><component :is="tool.icon" /></el-icon></span><span class="tool-card-copy"><strong>{{ tool.name }}</strong><small>{{ tool.description }}</small></span><el-icon class="tool-arrow"><ArrowRight /></el-icon><em v-if="tool.mode === 'planned'">待接入</em></button></div></section>
+          <section v-for="group in toolGroups" :key="group.name" class="tool-group"><div class="group-label"><span :style="{ background: group.color }"></span>{{ group.name }}</div><div class="tool-card-grid"><button v-for="tool in group.items" :key="tool.id" class="tool-card" :class="{ active: activeToolId === tool.id, 'is-planned': tool.mode === 'planned' }" :disabled="tool.mode === 'planned'" @click="selectTool(tool)"><span class="tool-icon" :style="tool.mode === 'planned' ? undefined : { background: tool.tint, color: tool.color }"><el-icon><component :is="tool.icon" /></el-icon></span><span class="tool-card-copy"><strong>{{ tool.name }}</strong><small>{{ tool.mode === 'planned' ? '功能优化中，敬请期待' : tool.description }}</small></span><el-icon class="tool-arrow"><ArrowRight /></el-icon><em v-if="tool.mode === 'planned'">优化中</em></button></div></section>
         </div>
       </main>
 
       <aside class="operation-pane">
         <div class="pane-heading"><div><span class="pane-kicker">03 / 执行处理</span><h3>{{ selectedTool?.name || '选择工具' }}</h3></div></div>
         <template v-if="selectedTool">
-          <p class="operation-description">{{ selectedTool.detail }}</p>
-          <div v-if="selectedTool.id === 'quiz'" class="quiz-workbench">
+          <p class="operation-description">{{ selectedTool.mode === 'planned' ? '该能力正在进行体验与稳定性优化，暂不开放执行。' : selectedTool.detail }}</p>
+          <div v-if="selectedTool.mode === 'planned'" class="planned-state"><span class="planned-icon"><el-icon><Timer /></el-icon></span><strong>功能优化中，敬请期待</strong><p>{{ selectedTool.name }} 正在完善中，开放后会在这里提供完整的配置与执行入口。</p></div>
+          <div v-else-if="selectedTool.id === 'quiz'" class="quiz-workbench">
             <input ref="quizFileInput" class="hidden-file-input" type="file" accept=".docx,.pdf,.txt,.md,.markdown,.html" @change="onQuizFileSelected" />
             <div class="quiz-source-actions"><el-button type="primary" :loading="quizUploading" @click="quizFileInput?.click()"><el-icon><UploadFilled /></el-icon> 上传题库文档</el-button><el-button :loading="quizBuilding" :disabled="!selectedDocumentId" @click="buildQuizFromSelectedDocument">从当前文档提取</el-button></div>
             <p class="helper-text">题库会保存到云端文档库。优先识别“题目 / 答案”格式；未检测到时用 DeepSeek 从正文生成练习题。</p>
@@ -65,9 +66,9 @@
             <p class="helper-text">支持 PDF、Word、TXT 的已提取正文及中、英、日、韩、法、德、西、俄、阿等语言互译。扫描 PDF 请先使用 OCR；译文可先预览，再应用到编辑区并保存为新版本，不会改动原文件。</p>
           </div>
           <div v-else-if="selectedTool.id === 'ppt'" class="setting-block"><label>PPT 主题</label><el-select v-model="pptTheme" class="document-select"><el-option label="莫兰迪浅色" value="morandi" /><el-option label="商务蓝" value="business" /><el-option label="极简白" value="minimal" /></el-select><p class="helper-text">调用现有 HTML PPT Skill，根据正文提炼演示大纲。</p></div>
-          <div v-else-if="selectedTool.mode === 'planned'" class="planned-state"><span class="planned-icon"><el-icon><Timer /></el-icon></span><strong>文件处理服务待接入</strong><p>当前项目尚未提供 {{ selectedTool.name }} 的后端处理接口。已保留统一入口与文件上下文，接入 OCR / PDF / 表格服务后即可启用。</p></div>
           <div v-else class="setting-block"><label>处理范围</label><div class="scope-card"><el-icon><DocumentChecked /></el-icon><span>{{ selectedDocumentId ? '当前选中文档（可保存为新版本）' : '当前文本草稿（不会自动覆盖文档）' }}</span></div><p class="helper-text">{{ selectedTool.tip }}</p></div>
-          <el-button v-if="selectedTool.id !== 'quiz'" class="run-button" type="primary" :loading="running" :disabled="selectedTool.mode === 'planned' || (!workingContent && !['ocr', 'pdf', 'table', 'convert', 'quiz'].includes(selectedTool.id))" @click="runTool"><el-icon><MagicStick /></el-icon>{{ selectedTool.mode === 'planned' ? '等待服务接入' : `执行${selectedTool.name}` }}</el-button>
+          <el-button v-if="selectedTool.id !== 'quiz'" class="run-button" type="primary" :loading="running" :disabled="selectedTool.mode === 'planned' || (!workingContent && !['ocr', 'pdf', 'table', 'convert', 'quiz'].includes(selectedTool.id))" @click="runTool"><el-icon><MagicStick /></el-icon>{{ selectedTool.mode === 'planned' ? '功能优化中，敬请期待' : `执行${selectedTool.name}` }}</el-button>
+          <ToolTaskStatus :visible="taskState.visible" :status="taskState.status" :progress="taskState.progress" :message="taskState.message" @retry="runTool" @dismiss="taskState.visible = false" />
         </template>
         <div v-else class="empty-operation"><el-icon :size="32"><Operation /></el-icon><p>从中间选择一个工具开始。</p></div>
         <div class="result-panel" v-if="result"><div class="result-heading"><span>处理结果</span><el-button text size="small" @click="result = ''">清除</el-button></div><pre>{{ result }}</pre><div class="result-actions" v-if="resultCanApply"><el-button size="small" @click="copyResult">复制结果</el-button><el-button size="small" type="primary" @click="applyResult">应用到编辑区</el-button></div></div>
@@ -75,7 +76,7 @@
     </section>
 
     <div ref="productivityRef">
-    <AdvancedWorkspace :current-content="workingContent" :current-document="activeDocument" @apply="value => workingContent = value" />
+    <AdvancedWorkspace :current-content="workingContent" :current-document="activeDocument" :available-documents="documents" @apply="value => workingContent = value" />
     </div>
 
     <section class="capability-note"><el-icon><InfoFilled /></el-icon><span><strong>已可执行：</strong>智能清洗、排版预设、AI 校对、文档对比、摘要、关键词、多语文档翻译、敏感信息脱敏、TXT / Markdown 导出、HTML PPT 生成。<strong>已接入：</strong>OCR、PDF 拆分合并、DOCX ↔ PDF 格式转换、Word 表格提取 Excel。</span></section>
@@ -90,11 +91,13 @@ import { docApi } from '../../api/document'
 import { aiApi } from '../../api/ai'
 import { fileApi } from '../../api/file'
 import AdvancedWorkspace from './AdvancedWorkspace.vue'
+import ToolTaskStatus from '../../components/toolbox/ToolTaskStatus.vue'
 
 const router = useRouter()
 const pageLoading = ref(false)
 const saving = ref(false)
 const running = ref(false)
+const taskState = ref({ visible: false, status: 'running', progress: 0, message: '' })
 const documents = ref([])
 const selectedDocumentId = ref('')
 const compareDocumentId = ref('')
@@ -147,10 +150,16 @@ const toolGroups = [
 ]
 
 const selectedTool = computed(() => toolGroups.flatMap(group => group.items).find(tool => tool.id === activeToolId.value))
+const availableToolCount = computed(() => toolGroups.flatMap(group => group.items).filter(tool => tool.mode !== 'planned').length)
 const activeDocument = computed(() => documents.value.find(doc => String(doc.id) === selectedDocumentId.value) || null)
 const compareCandidates = computed(() => documents.value.filter(doc => String(doc.id) !== selectedDocumentId.value))
 const completedCount = computed(() => operationCount.value)
 const currentQuiz = computed(() => quizQuestions.value[quizIndex.value])
+const selectTool = tool => {
+  if (tool.mode === 'planned') return
+  if (tool.id === 'quiz') { router.push('/quiz'); return }
+  activeToolId.value = tool.id
+}
 const sourceLanguages = [
   { value: 'auto', label: '自动识别' }, { value: 'zh', label: '中文' }, { value: 'en', label: '英语' }, { value: 'ja', label: '日语' }, { value: 'ko', label: '韩语' }, { value: 'fr', label: '法语' }, { value: 'de', label: '德语' }, { value: 'es', label: '西班牙语' }, { value: 'ru', label: '俄语' }, { value: 'ar', label: '阿拉伯语' }
 ]
@@ -296,9 +305,22 @@ async function fetchDocuments() {
   if (!userId) { router.push('/login'); return }
   pageLoading.value = true
   try {
-    const res = await docApi.getUserDocs(userId)
-    documents.value = responseData(res) || []
-  } catch (error) { documents.value = []; ElMessage.error('读取文档列表失败，请稍后重试') } finally { pageLoading.value = false }
+    let lastError
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const res = await docApi.getUserDocs(userId, { suppressGlobalError: true })
+        documents.value = responseData(res) || []
+        return
+      } catch (error) {
+        lastError = error
+        if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 400))
+      }
+    }
+    throw lastError
+  } catch (error) {
+    console.error('读取文档列表失败', error)
+    ElMessage.error('读取文档列表失败，请稍后重试')
+  } finally { pageLoading.value = false }
 }
 
 async function loadSelectedDocument() {
@@ -406,15 +428,18 @@ async function runFileJob(toolType) {
   }
   const submitted = responseData(await docApi.submitToolboxJob({ toolType, documentIds: ids, pages: toolType === 'PDF_SPLIT' ? pdfPages.value : undefined }))
   result.value = '任务已进入队列，正在处理…'; resultCanApply.value = false
+  taskState.value = { visible: true, status: 'running', progress: 0, message: '任务已进入队列，正在等待处理。' }
   for (let index = 0; index < 90; index++) {
     await new Promise(resolve => setTimeout(resolve, 1200))
     const job = responseData(await docApi.getToolboxJob(submitted.jobId))
     result.value = `${job.message}\n\n当前进度：${job.progress}%`
+    taskState.value = { visible: true, status: 'running', progress: Number(job.progress) || 0, message: job.message || '正在处理文档。' }
     if (job.status === 'SUCCESS') {
       const blob = await docApi.downloadToolboxJob(job.jobId)
       const url = URL.createObjectURL(blob); const link = document.createElement('a')
       link.href = url; link.download = job.fileName; link.click(); URL.revokeObjectURL(url)
       result.value += '\n\n结果文件已开始下载。'
+      taskState.value = { visible: true, status: 'success', progress: 100, message: '结果文件已生成并开始下载。' }
       return
     }
     if (job.status === 'FAILED') throw new Error(job.message)
@@ -427,6 +452,7 @@ async function runFileJob(toolType) {
     ElMessage.warning('请先选择文档或输入待处理文本'); return
   }
   running.value = true; result.value = ''; resultCanApply.value = false
+  taskState.value = { visible: true, status: 'running', progress: 8, message: `正在执行${tool.name}。` }
   try {
     if (tool.id === 'ocr') { await runFileJob('OCR') }
     else if (tool.id === 'table') { await runFileJob('WORD_TABLE_EXCEL') }
@@ -472,8 +498,14 @@ async function runFileJob(toolType) {
       const html = await aiApi.previewPpt({ outline: workingContent.value.slice(0, 12000), theme: pptTheme.value, title, model: 'deepseek-chat' })
       const popup = window.open('', '_blank'); if (popup) { popup.document.write(html); popup.document.close(); result.value = '演示稿已在新标签页打开。' } else { throw new Error('浏览器拦截了新窗口，请允许弹窗后重试') }
     }
-    incrementOperation(); ElMessage.success(`${tool.name}已完成`)
-  } catch (error) { ElMessage.error(error?.message || `${tool.name}执行失败，请稍后重试`) } finally { running.value = false }
+    incrementOperation();
+    if (taskState.value.status !== 'success') taskState.value = { visible: true, status: 'success', progress: 100, message: `${tool.name}已完成，可以查看处理结果。` }
+    ElMessage.success(`${tool.name}已完成`)
+  } catch (error) {
+    const message = error?.userMessage || error?.message || `${tool.name}执行失败，请稍后重试`
+    taskState.value = { visible: true, status: 'failed', progress: taskState.value.progress, message }
+    ElMessage.error(message)
+  } finally { running.value = false }
 }
 async function copyResult() { try { await navigator.clipboard.writeText(result.value); ElMessage.success('处理结果已复制') } catch (error) { ElMessage.warning('复制失败，请手动复制') } }
 function applyResult() { workingContent.value = result.value; resultCanApply.value = false; ElMessage.success('已应用到编辑区，确认后可保存为新版本') }
@@ -485,4 +517,33 @@ onMounted(fetchDocuments)
 .toolbox-page{min-height:100vh;padding:30px 34px 38px;background:#fbfaf8;color:#3f3a4b;font-family:"Microsoft YaHei",sans-serif}.toolbox-header{max-width:1500px;margin:0 auto 20px;display:flex;justify-content:space-between;gap:20px;align-items:center}.back-link{border:0;background:transparent;padding:0;color:#827896;cursor:pointer;font-size:13px;display:inline-flex;align-items:center;gap:5px}.title-row{display:flex;gap:13px;align-items:center;margin-top:11px}.title-mark{height:46px;width:46px;display:grid;place-items:center;border-radius:15px;background:#aca0ce;color:#fff;font-size:21px;box-shadow:0 8px 20px #aca0ce55}.title-row h1{font-size:25px;letter-spacing:.3px;margin:0 0 5px;font-weight:700}.title-row p{margin:0;color:#948da0;font-size:13px}.header-actions{display:flex;gap:10px}.toolbox-hero{max-width:1500px;margin:0 auto 22px;padding:26px 31px;border-radius:24px;background:linear-gradient(120deg,#edf4e2 0%,#f7f1f1 52%,#dfced6 100%);display:flex;justify-content:space-between;align-items:center;overflow:hidden;position:relative}.toolbox-hero:after{content:"";position:absolute;width:200px;height:200px;border-radius:50%;right:22%;top:-105px;background:#fff7;}.hero-copy{position:relative;z-index:1}.eyebrow,.pane-kicker{font-size:10px;letter-spacing:1.4px;font-weight:700;color:#847a9a}.hero-copy h2{font-size:22px;margin:8px 0;color:#574f66}.hero-copy p{font-size:13px;color:#756e7d;margin:0}.hero-stats{display:flex;position:relative;z-index:1;background:#ffffff92;border:1px solid #fff;padding:10px 4px;border-radius:17px}.hero-stats div{min-width:83px;padding:3px 12px;text-align:center;border-right:1px solid #e3dce5}.hero-stats div:last-child{border-right:0}.hero-stats strong{display:block;font-size:19px;color:#74698e}.hero-stats span{font-size:11px;color:#887f8f}.workspace-grid{max-width:1500px;margin:0 auto;display:grid;grid-template-columns:minmax(260px,.85fr) minmax(440px,1.5fr) minmax(290px,.95fr);gap:16px}.document-pane,.tools-pane,.operation-pane{border:1px solid #ebe5ea;border-radius:20px;background:#fff;padding:20px;box-shadow:0 8px 28px #7a6d8a0b}.pane-heading{display:flex;justify-content:space-between;align-items:start;margin-bottom:16px}.pane-heading h3{margin:4px 0 0;font-size:17px;color:#4b4655}.selection-hint{font-size:11px;line-height:25px;color:#8a8194}.document-select{width:100%}.option-row{display:flex;justify-content:space-between;gap:12px}.option-row small{color:#a19baa}.doc-preview{margin:14px 0 12px;min-height:104px;padding:13px;border-radius:14px;background:#faf8fa;color:#716a78;overflow:hidden}.doc-preview p{font-size:12px;line-height:1.75;margin:7px 0 0;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}.preview-label{font-size:10px;letter-spacing:1px;color:#9a8da8}.doc-preview.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;background:#fcfbfa;color:#aaa2af}.doc-preview.empty strong{font-size:12px;color:#827990}.doc-preview.empty span{font-size:11px;line-height:1.5}.content-input :deep(.el-textarea__inner){background:#fdfcfd;border-color:#ece5ef;line-height:1.7;font-size:12px;color:#5f5969}.document-actions{display:flex;gap:8px;margin-top:12px}.document-actions .el-button{flex:1;margin:0}.tool-groups{display:flex;flex-direction:column;gap:18px}.group-label{display:flex;align-items:center;gap:7px;font-size:12px;color:#847b8d;margin-bottom:9px;font-weight:600}.group-label span{width:8px;height:8px;border-radius:50%}.tool-card-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.tool-card{position:relative;text-align:left;border:1px solid #eee9ef;background:#fff;border-radius:14px;padding:12px 30px 12px 11px;min-height:66px;cursor:pointer;transition:.2s;display:flex;gap:9px;align-items:center}.tool-card:hover,.tool-card.active{border-color:#aca0ce;background:#faf8fe;box-shadow:0 6px 16px #76678f17}.tool-card.active:after{content:"";position:absolute;right:9px;width:6px;height:6px;border-radius:50%;background:#74698e}.tool-icon{height:34px;width:34px;border-radius:11px;display:grid;place-items:center;flex:none;font-size:16px}.tool-card-copy{display:flex;flex-direction:column;min-width:0;gap:3px}.tool-card strong{font-size:12px;color:#59515f}.tool-card small{font-size:10px;color:#a098a8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tool-arrow{display:none}.tool-card em{position:absolute;top:7px;right:8px;font-style:normal;font-size:9px;color:#b09ca6;background:#f8eced;padding:2px 4px;border-radius:4px}.operation-pane{display:flex;flex-direction:column}.operation-description{font-size:12px;line-height:1.7;color:#837b8b;margin:0 0 18px}.setting-block{padding:13px;border-radius:14px;background:#faf9f8;border:1px solid #f0ebee}.setting-block label{display:block;font-size:12px;font-weight:600;color:#625a68;margin-bottom:10px}.preset-group{display:flex;flex-wrap:wrap;gap:6px}.preset-group :deep(.el-radio-button__inner){border:1px solid #e8e1eb!important;border-radius:8px!important;box-shadow:none!important;font-size:11px;padding:7px 9px;color:#7b7283}.preset-group :deep(.el-radio-button:first-child .el-radio-button__inner){border-left:1px solid #e8e1eb}.preset-group :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner){background:#84799f;border-color:#84799f!important;color:#fff}.helper-text{font-size:11px;line-height:1.65;color:#958d9c;margin:11px 0 0}.scope-card{display:flex;gap:7px;align-items:flex-start;padding:10px;background:#fff;border-radius:9px;color:#7b7283;font-size:11px;line-height:1.45}.scope-card .el-icon{color:#7e729b;margin-top:1px}.planned-state{text-align:center;padding:22px 8px;color:#8f8695}.planned-icon{margin:auto auto 9px;width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:#f2edf3;color:#a08a96}.planned-state strong{font-size:13px;color:#716878}.planned-state p{font-size:11px;line-height:1.7;margin:8px 0 0}.run-button{width:100%;margin-top:16px;height:40px;background:#74698e;border-color:#74698e;border-radius:11px}.run-button:hover{background:#675d7f;border-color:#675d7f}.empty-operation{flex:1;min-height:230px;display:grid;place-items:center;align-content:center;color:#b0a8b6;text-align:center;gap:9px}.empty-operation p{font-size:12px}.result-panel{margin-top:17px;border-top:1px dashed #e5dfe7;padding-top:13px}.result-heading{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#756c7e;font-weight:600}.result-panel pre{margin:9px 0 0;max-height:218px;overflow:auto;padding:11px;border-radius:10px;white-space:pre-wrap;word-break:break-word;background:#f8f7f5;color:#655e6b;font:11px/1.7 "Microsoft YaHei",sans-serif}.result-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:8px}.capability-note{max-width:1500px;margin:16px auto 0;padding:12px 16px;display:flex;gap:8px;align-items:flex-start;border-radius:13px;background:#f5f2f6;color:#847b8c;font-size:11px;line-height:1.7}.capability-note .el-icon{color:#8a7ba9;margin-top:2px;flex:none}.capability-note strong{color:#696075}@media(max-width:1120px){.workspace-grid{grid-template-columns:1fr 1fr}.operation-pane{grid-column:span 2}.toolbox-header,.toolbox-hero{align-items:flex-start}.hero-stats{margin-top:18px}.toolbox-hero{flex-direction:column}}@media(max-width:720px){.toolbox-page{padding:20px 14px}.toolbox-header{flex-direction:column}.header-actions{width:100%}.header-actions .el-button{flex:1}.workspace-grid{grid-template-columns:1fr}.operation-pane{grid-column:auto}.tool-card-grid{grid-template-columns:1fr}.hero-stats{width:100%;box-sizing:border-box;justify-content:space-between}.hero-stats div{min-width:0;flex:1;padding:3px}.title-row h1{font-size:21px}}
 .quiz-workbench{padding:13px;border:1px solid #eee8f0;border-radius:14px;background:#faf9fb}.hidden-file-input{display:none}.quiz-source-actions{display:flex;gap:8px;flex-wrap:wrap}.quiz-card{margin-top:14px;padding:14px;border-radius:12px;background:#fff;border:1px solid #e8e1ee}.quiz-progress,.quiz-actions{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:11px;color:#837a8e}.quiz-progress strong{color:#74698e}.quiz-question{margin:15px 0 12px;font-size:14px;line-height:1.75;color:#4e4759;font-weight:600}.quiz-feedback{margin-top:10px;padding:10px;border-radius:9px;background:#fbefec;color:#9a625b;font-size:11px;line-height:1.65}.quiz-feedback.correct{background:#ebf4ed;color:#568064}.quiz-feedback p{margin:4px 0 0}.quiz-actions{margin-top:12px}.quiz-empty{min-height:150px;display:flex;gap:8px;flex-direction:column;align-items:center;justify-content:center;color:#a098a8;font-size:12px;text-align:center}.quiz-empty .el-icon{font-size:26px;color:#a16f87}
 .translate-settings label{display:block;margin:14px 0 8px;font-size:12px;color:#776e80;font-weight:600}.translate-settings label:first-child{margin-top:0}.language-row{display:grid;grid-template-columns:minmax(0,1fr) 22px minmax(0,1fr);gap:7px;align-items:center}.language-arrow{justify-self:center;color:#8c80a0}.translate-settings .preset-group{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.translate-settings .preset-group :deep(.el-radio-button){display:flex;margin:0!important}.translate-settings .preset-group :deep(.el-radio-button__inner){min-height:32px;box-sizing:border-box;display:flex;align-items:center;justify-content:center}
+
+/* 未接入工具统一使用低对比灰阶，并禁止交互，避免把占位功能误认为可执行能力。 */
+.tool-card.is-planned,
+.tool-card.is-planned:hover {
+  cursor: not-allowed;
+  border-color: #e7e5e2;
+  background: #f7f7f5;
+  box-shadow: none;
+  opacity: .78;
+}
+.tool-card.is-planned .tool-icon {
+  color: #9d9d99 !important;
+  background: #e8e8e5 !important;
+}
+.tool-card.is-planned strong { color: #8b8b87; }
+.tool-card.is-planned small { color: #a6a6a1; }
+.tool-card.is-planned em { color: #8e8e89; background: #ecece9; }
+
+/* 全局根节点禁用了页面滚动；工具箱内容较长，因此在页面自身建立独立滚动区。 */
+.toolbox-page {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
+}
 </style>

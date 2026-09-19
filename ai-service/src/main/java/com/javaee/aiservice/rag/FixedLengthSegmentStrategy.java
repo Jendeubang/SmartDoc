@@ -34,6 +34,7 @@ public class FixedLengthSegmentStrategy implements SegmentStrategy {
         this.overlap = overlap;
     }
 
+    // 按固定字符数滑动切分，块间保留 overlap 重叠，并优先在标点处断句
     @Override
     public List<Segment> segment(String documentId, String content) {
         log.info("执行固定长度分段: documentId={}, chunkSize={}, overlap={}", documentId, chunkSize, overlap);
@@ -84,6 +85,7 @@ public class FixedLengthSegmentStrategy implements SegmentStrategy {
         return segments;
     }
 
+    // 在窗口内从后向前找最近的标点或空白作为切分点，避免截断词语
     private int findBreakPoint(String content, int start, int end) {
         for (int i = end - 1; i >= start; i--) {
             char c = content.charAt(i);

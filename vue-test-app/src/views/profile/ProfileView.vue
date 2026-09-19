@@ -8,7 +8,7 @@
       <section class="profile-card" v-loading="loading">
         <header class="profile-header">
           <p class="eyebrow">ACCOUNT SETTINGS</p>
-          <h1>个人信息</h1>
+          <div class="header-title-row"><h1>个人信息</h1><el-button plain @click="router.push('/ai-settings')">模型配置</el-button></div>
           <p>管理头像和个性签名。注册时设置的昵称将作为你的登录名称，无法修改。</p>
         </header>
 
@@ -62,7 +62,12 @@ const avatarPreview = ref('')
 let blobPreviewUrl = ''
 
 const currentUserId = computed(() => {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.USER_INFO) || '{}').id || '' } catch { return '' }
+  try {
+    const cachedUser = JSON.parse(localStorage.getItem(STORAGE_KEYS.USER_INFO) || '{}')
+    return cachedUser.id || cachedUser.userId || localStorage.getItem('userId') || ''
+  } catch {
+    return localStorage.getItem('userId') || ''
+  }
 })
 const profileForm = ref({ username: '', signature: '', avatarFileId: '' })
 const PROFILE_UPDATED_KEY = 'smartdoc_profile_updated_at'
@@ -97,7 +102,8 @@ const fetchAvatar = async (fileId) => {
     return
   }
   try {
-    const blob = await fileApi.download(fileId)
+    // 头像是附加资源：短暂限流或文件缺失时不应影响个人信息页本身。
+    const blob = await fileApi.download(fileId, { suppressGlobalError: true, timeout: 15000 })
     disposeBlobPreview()
     blobPreviewUrl = URL.createObjectURL(blob)
     avatarPreview.value = blobPreviewUrl
@@ -197,6 +203,8 @@ onBeforeUnmount(disposeBlobPreview)
 .profile-header { padding: 38px 48px 30px; background: linear-gradient(118deg, #f1eef5, #fbfaf9 68%); border-bottom: 1px solid #ebe6ed; }
 .eyebrow { margin: 0 0 10px; color: #9789ae; font-size: 11px; font-weight: 700; letter-spacing: .16em; }
 .profile-header h1 { margin: 0; color: #50465a; font-size: 28px; letter-spacing: .02em; }
+.header-title-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.header-title-row :deep(.el-button) { border-color: #d8d0e0; color: #74698e; background: rgba(255,255,255,.72); }
 .profile-header > p:last-child { margin: 10px 0 0; color: #8a8191; font-size: 14px; }
 .profile-content { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 42px; padding: 38px 48px 44px; }
 .avatar-panel { display: flex; flex-direction: column; align-items: center; padding-top: 7px; text-align: center; }

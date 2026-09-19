@@ -3,6 +3,7 @@ package com.javaee.gateway.config;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -21,11 +22,16 @@ import reactor.core.publisher.Mono;
 @Configuration
 public class GlobalCorsConfig {
 
+    @Value("${security.cors.allowed-origins:http://localhost:5173}")
+    private String allowedOrigins;
+
     @Bean
     public CorsWebFilter corsWebFilter() {
         CorsConfiguration corsConfig = new CorsConfiguration();
         // 允许的源
-        corsConfig.addAllowedOrigin("http://localhost:5173");
+        for (String origin : allowedOrigins.split(",")) {
+            if (!origin.isBlank()) corsConfig.addAllowedOrigin(origin.trim());
+        }
         // 允许的请求头
         corsConfig.addAllowedHeader("*");
         // 允许的请求方法

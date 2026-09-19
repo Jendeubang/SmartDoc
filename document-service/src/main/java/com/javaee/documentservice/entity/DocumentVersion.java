@@ -10,6 +10,7 @@ import java.time.LocalDateTime;
 /**
  * 文档版本实体类
  */
+// 对应简历第 6 条「企业空间与在线协同」中的版本差异：记录每个历史版本的正文与变更说明。
 @Data
 @TableName("document_version")
 public class DocumentVersion {
@@ -18,6 +19,7 @@ public class DocumentVersion {
     private String id;
 
     private String documentId;
+    private String organizationId;
 
     private Integer versionNumber;
 

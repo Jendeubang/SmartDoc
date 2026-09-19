@@ -26,6 +26,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 
+// 对应简历第 5 条「文档生产力工具箱」：按扩展名解析 Word/PDF/HTML/Markdown，并对图片做 OCR 识别
 /**
  * 文档解析工具类
  * 支持多种文档格式：Word、PDF、HTML、Markdown、图片OCR等
@@ -60,6 +61,7 @@ public class DocumentParserUtil {
         log.info("开始解析文档: fileName={}, extension={}, size={}", fileName, extension, fileContent.length);
 
         try {
+            // 根据文件扩展名分发到对应的解析器
             return switch (extension.toLowerCase()) {
                 case "docx" -> parseDocx(fileContent);
                 case "doc" -> parseDoc(fileContent);
@@ -224,6 +226,7 @@ public class DocumentParserUtil {
                 return "";
             }
             
+            // 初始化 Tesseract 引擎，优先使用环境变量指定的语言包路径
             ITesseract tesseract = new Tesseract();
             String tessdataPath = System.getenv("TESSDATA_PREFIX");
             if (tessdataPath != null && !tessdataPath.isBlank()) {

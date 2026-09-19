@@ -9,10 +9,13 @@ import java.util.List;
 
 public interface SegmentStrategy {
 
+    // 执行分段：将文档切分为多个分段
     List<Segment> segment(String documentId, String content);
 
+    // 返回策略名称标识
     String getStrategyName();
 
+    // 分段模型：封装单个分段的 ID、正文、标题及相邻分块链接（用于检索时上下文贯通）
     static class Segment {
         private String segmentId;
         private String documentId;

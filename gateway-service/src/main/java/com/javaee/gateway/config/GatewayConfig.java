@@ -53,8 +53,12 @@ public class GatewayConfig {
     private RedisRateLimiter aiRateLimiter;
 
     @Autowired
-    @Qualifier("ipKeyResolver")
-    private KeyResolver ipKeyResolver;
+    @Qualifier("aiReadRateLimiter")
+    private RedisRateLimiter aiReadRateLimiter;
+
+    @Autowired
+    @Qualifier("userKeyResolver")
+    private KeyResolver userKeyResolver;
 
     @Bean
     public RouteLocator customRouteLocator(RouteLocatorBuilder builder) {
@@ -65,7 +69,7 @@ public class GatewayConfig {
                         .filters(f -> f
                                 .requestRateLimiter(c -> c
                                         .setRateLimiter(defaultRateLimiter)
-                                        .setKeyResolver(ipKeyResolver)))
+                                        .setKeyResolver(userKeyResolver)))
                         .uri(userServiceUri))
 
                 // ── 文件服务 ──────────────────────────────────────────
@@ -74,8 +78,19 @@ public class GatewayConfig {
                         .filters(f -> f
                                 .requestRateLimiter(c -> c
                                         .setRateLimiter(defaultRateLimiter)
-                                        .setKeyResolver(ipKeyResolver)))
+                                        .setKeyResolver(userKeyResolver)))
                         .uri(fileServiceUri))
+
+                // ── AI 页面基础设施 ──────────────────────────────────
+                // 轮询/指标不会消耗模型生成配额，避免打开页面时误触发 429。
+                .route("ai-read", r -> r
+                        .path("/api/ai/aiops/**", "/api/ai/async/jobs/**", "/api/ai/models",
+                                "/api/ai/provider-credentials/**", "/api/ai/agent/conversations/**")
+                        .filters(f -> f
+                                .requestRateLimiter(c -> c
+                                        .setRateLimiter(aiReadRateLimiter)
+                                        .setKeyResolver(userKeyResolver)))
+                        .uri(aiServiceUri))
 
                 // ── AI 服务 (REST) ────────────────────────────────────
                 .route("ai", r -> r
@@ -83,7 +98,7 @@ public class GatewayConfig {
                         .filters(f -> f
                                 .requestRateLimiter(c -> c
                                         .setRateLimiter(aiRateLimiter)
-                                        .setKeyResolver(ipKeyResolver)))
+                                        .setKeyResolver(userKeyResolver)))
                         .uri(aiServiceUri))
 
                 // ── Agent / Skill 独立接口 ────────────────────────────
@@ -92,7 +107,7 @@ public class GatewayConfig {
                         .filters(f -> f
                                 .requestRateLimiter(c -> c
                                         .setRateLimiter(aiRateLimiter)
-                                        .setKeyResolver(ipKeyResolver)))
+                                        .setKeyResolver(userKeyResolver)))
                         .uri(aiServiceUri))
 
                 // ── Agent 工作台 WebSocket（不限流） ──────────────────
@@ -106,7 +121,7 @@ public class GatewayConfig {
                         .filters(f -> f
                                 .requestRateLimiter(c -> c
                                         .setRateLimiter(defaultRateLimiter)
-                                        .setKeyResolver(ipKeyResolver)))
+                                        .setKeyResolver(userKeyResolver)))
                         .uri(documentServiceUri))
 
                 // ── 文档协作 WebSocket（不限流） ──────────────────────

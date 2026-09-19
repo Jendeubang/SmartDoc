@@ -21,7 +21,8 @@ public class SecurityConfig {
             // 配置路径权限
             .authorizeExchange(exchanges -> exchanges
                 // 公开接口
-                .pathMatchers("/api/users/register", "/api/users/login").permitAll()
+                .pathMatchers("/api/users/register", "/api/users/login", "/api/users/refresh",
+                        "/api/users/password/forgot", "/api/users/password/reset", "/actuator/health").permitAll()
                 // 其他接口需要认证
                 .anyExchange().permitAll()
             );

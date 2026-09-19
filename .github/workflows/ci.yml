@@ -32,6 +32,7 @@ jobs:
           cache: npm
           cache-dependency-path: vue-test-app/package-lock.json
       - run: npm ci
+      - run: npm test
       - run: npm run build
 
   compose:
@@ -40,3 +41,28 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate Docker Compose
         run: cp .env.example .env && docker compose config --quiet
+
+  security:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject tracked runtime secrets and default passwords
+        shell: bash
+        run: |
+          test -z "$(git ls-files '.env')"
+          ! grep -RInE "(password[^[:alnum:]]*[:=][^$].*123456|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY)" --exclude-dir=.git --exclude='*.md' .
+      - uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-results.sarif
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif

@@ -28,9 +28,8 @@ CREATE TABLE IF NOT EXISTS `user` (
 
 -- 插入初始用户（密码均为 123456 的 BCrypt 哈希）
 INSERT INTO `user` (`username`, `password`, `email`, `phone`, `role`, `status`) VALUES
-('admin',  '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'admin@docai.com', '13900000001', 'ADMIN', 1),
-('user',   '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'user@docai.com',  '13900000002', 'USER',  1)
-ON DUPLICATE KEY UPDATE `username` = VALUES(`username`);
+-- No default users are inserted. Bootstrap the first administrator with the
+-- SMARTDOC_BOOTSTRAP_* environment variables on an empty installation.
 
 -- ── 文件元数据表 ────────────────────────────────────
 CREATE TABLE IF NOT EXISTS `file_metadata` (
@@ -44,6 +43,7 @@ CREATE TABLE IF NOT EXISTS `file_metadata` (
   `md5` VARCHAR(64) DEFAULT NULL,
   `storage_type` VARCHAR(32) DEFAULT NULL,
   `bucket_name` VARCHAR(128) DEFAULT NULL,
+  `organization_id` VARCHAR(64) DEFAULT NULL,
   `object_key` VARCHAR(1024) DEFAULT NULL,
   `status` VARCHAR(32) DEFAULT NULL,
   `create_by` VARCHAR(64) DEFAULT NULL,
@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS `document` (
 CREATE TABLE IF NOT EXISTS `document_category` (
   `id` VARCHAR(64) NOT NULL PRIMARY KEY,
   `user_id` BIGINT NOT NULL,
+  `organization_id` VARCHAR(64) NULL,
   `name` VARCHAR(50) NOT NULL,
   `color` VARCHAR(16) NOT NULL DEFAULT '#ACA0CE',
   `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -103,12 +104,15 @@ CREATE TABLE IF NOT EXISTS `document_access` (
 -- ── 审计日志表（AIOps 用） ──────────────────────────
 CREATE TABLE IF NOT EXISTS `mcp_audit_log` (
   `id` BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  `skill_name` VARCHAR(100),
+  `trace_id` VARCHAR(64),
+  `action` VARCHAR(128) NOT NULL,
   `params` TEXT,
   `result` TEXT,
-  `status` VARCHAR(20),
-  `user_id` BIGINT,
+  `status` VARCHAR(20) DEFAULT 'SUCCESS',
+  `user_id` VARCHAR(64),
   `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP,
-  INDEX `idx_skill_name` (`skill_name`),
-  INDEX `idx_user_id` (`user_id`)
+  INDEX `idx_trace_id` (`trace_id`),
+  INDEX `idx_action` (`action`),
+  INDEX `idx_user_id` (`user_id`),
+  INDEX `idx_create_time` (`create_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

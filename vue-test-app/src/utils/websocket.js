@@ -4,6 +4,7 @@
  */
 import { Client } from '@stomp/stompjs'
 import SockJS from 'sockjs-client'
+import { STORAGE_KEYS } from '../constants'
 
 let stompClient = null
 let connected = false
@@ -17,6 +18,9 @@ function createClient() {
     reconnectDelay: 5000,
     heartbeatIncoming: 10000,
     heartbeatOutgoing: 10000,
+    connectHeaders: {
+      Authorization: `Bearer ${localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN) || ''}`
+    },
     onConnect: () => {
       connected = true
       console.log('[WS] 已连接')

@@ -58,8 +58,9 @@ export const fileApi = {
      * 文件下载 (返回二进制数据流 Blob)
      * @param {String} fileId 文件ID
      */
-    download: (fileId) => {
+    download: (fileId, config = {}) => {
         return request.get(`/files/download/${fileId}`, {
+            ...config,
             responseType: 'blob'
         })
     },

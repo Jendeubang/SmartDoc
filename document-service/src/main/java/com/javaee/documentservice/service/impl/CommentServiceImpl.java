@@ -20,6 +20,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
+// 评论服务实现：负责评论的创建、列表、详情、删除与回复查询，支持父子评论结构。
+// 对应简历第 6 条「企业空间与在线协同」中的文档评论。
 @Service
 public class CommentServiceImpl implements CommentService {
 
@@ -32,6 +34,7 @@ public class CommentServiceImpl implements CommentService {
     private DocumentMapper documentMapper;
     @Autowired private DocumentAccessService documentAccessService;
 
+    // 创建评论：校验文档与父评论后落库，支持回复（parentId）
     @Override
     @Transactional
     public CommentVO createComment(CommentCreateDTO dto, Long userId) {
@@ -43,13 +46,14 @@ public class CommentServiceImpl implements CommentService {
 
         if (dto.getParentId() != null) {
             DocumentComment parent = commentMapper.selectById(dto.getParentId());
-            if (parent == null) {
+            if (parent == null || !dto.getDocumentId().equals(parent.getDocumentId())) {
                 throw new BusinessException("父评论不存在");
             }
         }
 
         DocumentComment comment = new DocumentComment();
         comment.setDocumentId(dto.getDocumentId());
+        comment.setOrganizationId(document.getOrganizationId());
         comment.setUserId(userId);
         comment.setContent(dto.getContent());
         comment.setParentId(dto.getParentId());
@@ -63,6 +67,7 @@ public class CommentServiceImpl implements CommentService {
         return convertToVO(comment);
     }
 
+    // 查询文档的根评论并递归附带回复
     @Override
     public List<CommentVO> getCommentsByDocumentId(String documentId) {
         List<DocumentComment> rootComments = commentMapper.selectRootCommentsByDocumentId(documentId);
@@ -72,19 +77,20 @@ public class CommentServiceImpl implements CommentService {
     }
 
     @Override
-    public CommentVO getCommentById(String id) {
+    public CommentVO getCommentById(String documentId, String id) {
         DocumentComment comment = commentMapper.selectById(id);
-        if (comment == null) {
+        if (comment == null || !documentId.equals(comment.getDocumentId())) {
             throw new BusinessException("评论不存在");
         }
         return convertToVO(comment);
     }
 
+    // 删除评论（软删除，仅作者本人可删）
     @Override
     @Transactional
-    public void deleteComment(String id, Long userId) {
+    public void deleteComment(String documentId, String id, Long userId) {
         DocumentComment comment = commentMapper.selectById(id);
-        if (comment == null) {
+        if (comment == null || !documentId.equals(comment.getDocumentId())) {
             throw new BusinessException("评论不存在");
         }
 
@@ -97,8 +103,13 @@ public class CommentServiceImpl implements CommentService {
         log.info("删除评论成功: id={}", id);
     }
 
+    // 查询某父评论下的回复列表
     @Override
-    public List<CommentVO> getReplies(String parentId) {
+    public List<CommentVO> getReplies(String documentId, String parentId) {
+        DocumentComment parent = commentMapper.selectById(parentId);
+        if (parent == null || !documentId.equals(parent.getDocumentId())) {
+            throw new BusinessException("Parent comment does not exist in this document");
+        }
         List<DocumentComment> replies = commentMapper.selectByParentId(parentId);
         return replies.stream()
                 .map(this::convertToVO)
@@ -119,6 +130,7 @@ public class CommentServiceImpl implements CommentService {
         return vo;
     }
 
+    // 将评论实体转为 VO 并递归填充其回复
     private CommentVO convertToVOWithReplies(DocumentComment comment) {
         CommentVO vo = convertToVO(comment);
         List<DocumentComment> replies = commentMapper.selectByParentId(comment.getId());

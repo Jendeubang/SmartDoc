@@ -32,5 +32,10 @@ export const agentApi = {
     listTasks: () => request.get('/ai/agent/tasks'),
 
     // 获取对话历史
-    getConversationHistory: (conversationId) => request.get(`/ai/agent/conversations/${conversationId}/history`)
+    getConversationHistory: (conversationId) => request.get(`/ai/agent/conversations/${conversationId}/history`),
+
+    listConversations: (channel = 'smartdoc-ai', config = {}) => request.get('/ai/agent/conversations', { ...config, params: { ...(config.params || {}), channel } }),
+    getConversationMessages: (conversationId, config = {}) => request.get(`/ai/agent/conversations/${conversationId}/messages`, config),
+    renameConversation: (conversationId, title) => request.put(`/ai/agent/conversations/${conversationId}`, { title }),
+    deleteConversation: (conversationId) => request.delete(`/ai/agent/conversations/${conversationId}`)
 }

@@ -10,6 +10,7 @@ import com.javaee.aiservice.dto.*;
 import com.javaee.aiservice.factory.AIServiceFactory;
 import com.javaee.aiservice.model.ModelType;
 import com.javaee.aiservice.security.RequestUserContext;
+import com.javaee.aiservice.provider.UserAIProviderCredentialService;
 import com.javaee.aiservice.service.*;
 import com.javaee.aiservice.vo.*;
 import com.javaee.common.model.Result;
@@ -36,6 +37,8 @@ import java.util.stream.Collectors;
  * AI控制器
  * 提供AI处理和文件管理相关的REST API接口，支持多模型选择
  */
+// 类职责：AI 接口控制器，对应简历第4条「AI 智能对话及文档分析」——
+// 暴露 /summarize、/keywords、/correct、/meeting-minutes/audio 等 REST 端点。
 @RestController
 @RequestMapping("/api/ai")
 @Tag(name = "AI处理", description = "文档摘要、关键词提取、文档分析等AI处理接口")
@@ -68,6 +71,41 @@ public class AIController {
     @Autowired
     private SpeechTranscriptionService speechTranscriptionService;
 
+    @Autowired
+    private UserAIProviderCredentialService userAIProviderCredentialService;
+
+    @GetMapping("/provider-credentials")
+    @Operation(summary = "获取当前用户的模型配置", description = "只返回服务商、模型和脱敏后的 Key 信息，不返回明文 API Key")
+    public Result<java.util.List<UserAIProviderCredentialVO>> listProviderCredentials() {
+        return Result.success(userAIProviderCredentialService.list());
+    }
+
+    @PostMapping("/provider-credentials/test")
+    @Operation(summary = "测试用户模型配置")
+    public Result<Map<String, Object>> testProviderCredential(@RequestBody UserAIProviderCredentialRequest request) {
+        return Result.success(userAIProviderCredentialService.test(request));
+    }
+
+    @PostMapping("/provider-credentials")
+    @Operation(summary = "保存用户模型配置")
+    public Result<UserAIProviderCredentialVO> saveProviderCredential(@RequestBody UserAIProviderCredentialRequest request) {
+        return Result.success(userAIProviderCredentialService.save(request));
+    }
+
+    @DeleteMapping("/provider-credentials/{id}")
+    @Operation(summary = "删除用户模型配置")
+    public Result<Void> deleteProviderCredential(@PathVariable String id) {
+        userAIProviderCredentialService.delete(id);
+        return Result.success();
+    }
+
+    @PutMapping("/provider-credentials/{id}/default")
+    @Operation(summary = "设置默认用户模型")
+    public Result<UserAIProviderCredentialVO> setDefaultProviderCredential(@PathVariable String id) {
+        return Result.success(userAIProviderCredentialService.setDefault(id));
+    }
+
+    // 会议纪要生成：上传音频 → ASR 转写 → 大模型整理为结构化会议纪要。
     @PostMapping(value = "/meeting-minutes/audio", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(summary = "录音生成会议纪要", description = "上传音频后先调用 ASR 转写服务，再由 DeepSeek 整理为结构化会议纪要")
     public Result<Map<String, String>> createMeetingMinutesFromAudio(
@@ -86,6 +124,7 @@ public class AIController {
      * 获取可用模型列表
      * @return 模型列表
      */
+    // 列出所有可用 AI 模型及各自的可用状态。
     @GetMapping("/models")
     @Operation(summary = "获取可用模型列表", description = "获取所有可用的AI模型列表及其详细信息")
     public Result<java.util.List<Map<String, Object>>> getModels() {
@@ -99,6 +138,18 @@ public class AIController {
                 return model;
             })
             .collect(Collectors.toList());
+        // 将当前用户的自定义模型追加到模型选择器；API Key 仍只保存在服务端。
+        userAIProviderCredentialService.list().forEach(item -> {
+            Map<String, Object> custom = new HashMap<>();
+            custom.put("code", item.model());
+            custom.put("name", item.provider() + " · " + item.model());
+            custom.put("provider", item.provider());
+            custom.put("available", "ACTIVE".equalsIgnoreCase(item.status()));
+            custom.put("userOwned", true);
+            custom.put("defaultCredential", item.defaultCredential());
+            models.removeIf(existing -> item.model().equals(existing.get("code")));
+            models.add(custom);
+        });
         return Result.success(models);
     }
 

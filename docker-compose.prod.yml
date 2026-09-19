@@ -1,0 +1,64 @@
+services:
+  user-service: &secured-service
+    environment:
+      JWT_KEYS: ""
+      JWT_KEYS_FILE: /run/secrets/jwt_keys
+      SECURITY_INTERNAL_SERVICE_TOKEN: ""
+      SECURITY_INTERNAL_SERVICE_TOKEN_FILE: /run/secrets/internal_service_token
+    secrets: [jwt_keys, internal_service_token]
+
+  file-service:
+    <<: *secured-service
+
+  ai-service:
+    <<: *secured-service
+
+  document-service:
+    <<: *secured-service
+
+  gateway-service:
+    ports: !reset []
+    expose: ["8080"]
+    environment:
+      JWT_KEYS: ""
+      JWT_KEYS_FILE: /run/secrets/jwt_keys
+      SECURITY_INTERNAL_SERVICE_TOKEN: ""
+      SECURITY_INTERNAL_SERVICE_TOKEN_FILE: /run/secrets/internal_service_token
+    secrets: [jwt_keys, internal_service_token]
+
+  reverse-proxy:
+    build:
+      context: .
+      dockerfile: deploy/nginx/Dockerfile
+    container_name: smartdoc-proxy
+    restart: always
+    depends_on:
+      gateway-service:
+        condition: service_healthy
+    environment:
+      SMARTDOC_DOMAIN: ${SMARTDOC_DOMAIN}
+    volumes:
+      - ${TLS_CERT_DIR}:/etc/nginx/tls:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 256M }
+
+secrets:
+  jwt_keys:
+    file: ${JWT_KEYS_SECRET_FILE}
+  internal_service_token:
+    file: ${INTERNAL_SERVICE_TOKEN_SECRET_FILE}

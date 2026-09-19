@@ -38,9 +38,40 @@ public class McpSchemaInitializer {
             """;
         try {
             jdbcTemplate.execute(sql);
+            addColumn("trace_id", "VARCHAR(64) NULL");
+            addColumn("action", "VARCHAR(128) NULL");
+            addColumn("params", "TEXT NULL");
+            addColumn("result", "TEXT NULL");
+            addColumn("status", "VARCHAR(20) NOT NULL DEFAULT 'SUCCESS'");
+            addColumn("user_id", "VARCHAR(64) NULL");
+            addColumn("create_time", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP");
+            migrateLegacyAction();
             log.info("MCP 审计日志表已就绪");
         } catch (Exception e) {
             log.error("MCP 审计日志表创建失败", e);
+        }
+    }
+
+    private void migrateLegacyAction() {
+        Integer legacyColumn = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS " +
+                        "WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='mcp_audit_log' AND COLUMN_NAME='skill_name'",
+                Integer.class);
+        if (legacyColumn != null && legacyColumn > 0) {
+            jdbcTemplate.update("UPDATE mcp_audit_log SET action=COALESCE(NULLIF(action, ''), skill_name, 'legacy') " +
+                    "WHERE action IS NULL OR action='' ");
+        } else {
+            jdbcTemplate.update("UPDATE mcp_audit_log SET action='legacy' WHERE action IS NULL OR action='' ");
+        }
+    }
+
+    private void addColumn(String column, String definition) {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS " +
+                        "WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='mcp_audit_log' AND COLUMN_NAME=?",
+                Integer.class, column);
+        if (count != null && count == 0) {
+            jdbcTemplate.execute("ALTER TABLE `mcp_audit_log` ADD COLUMN `" + column + "` " + definition);
         }
     }
 }

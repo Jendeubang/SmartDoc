@@ -17,6 +17,8 @@ public class DocumentCategory {
 
     private Long userId;
 
+    private String organizationId;
+
     private String name;
 
     private String color;

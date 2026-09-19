@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node --insecure-http-parser ./node_modules/vite/bin/vite.js",
+    "test": "node --test src/api/asyncJob.test.mjs src/utils/requestError.test.mjs src/utils/theme.test.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },

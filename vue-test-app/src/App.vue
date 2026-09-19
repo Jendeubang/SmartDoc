@@ -17,7 +17,12 @@ const showAiAssistant = computed(() => {
   if (!route.path) return false
 
   // 定义不需要显示 AI 的黑名单路径
-  const hiddenPaths = ['/login', '/register', '/auth', '/editor', '/morandi-preview']
+  // 设置页应保持独立：避免全局 AI 助理在加载个人资料、模型配置时额外发起
+  // 会话/模型请求，造成设置页被无关的鉴权或限流提示干扰。
+  const hiddenPaths = [
+    '/login', '/register', '/auth', '/editor', '/morandi-preview',
+    '/profile', '/ai-settings'
+  ]
 
   // 如果当前路径包含在黑名单里，就不显示
   const isHidden = hiddenPaths.some(path => route.path.startsWith(path))

@@ -2,7 +2,6 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
 const apiTarget = process.env.VITE_API_TARGET || 'http://localhost:8080'
-const aiTarget = process.env.VITE_AI_TARGET || 'http://localhost:8083'
 
 export default defineConfig({
   plugins: [vue()],
@@ -26,7 +25,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/ws/collaborate': {
-        target: 'http://localhost:8084',
+        target: apiTarget,
         changeOrigin: true,
         ws: true,
       },
@@ -36,11 +35,11 @@ export default defineConfig({
         ws: true,
       },
       '/api/ai': {
-        target: aiTarget,
+        target: apiTarget,
         changeOrigin: true,
       },
       '/api/skills': {
-        target: aiTarget,
+        target: apiTarget,
         changeOrigin: true,
       },
       '/api': {

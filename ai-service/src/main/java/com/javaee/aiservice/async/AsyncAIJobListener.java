@@ -15,6 +15,7 @@ import com.javaee.aiservice.dto.KeywordExtractDTO;
 import com.javaee.aiservice.dto.TextAnalyzeDTO;
 import com.javaee.aiservice.dto.TextSummarizeDTO;
 import com.javaee.aiservice.service.AIService;
+import com.javaee.common.config.security.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
@@ -55,6 +56,14 @@ public class AsyncAIJobListener {
                 message.getJobId(), message.getType(), message.getModel());
 
         asyncAIJobService.markRunning(message.getJobId());
+        SecurityContext previousContext = SecurityContextHolder.getContext();
+        SecurityContext jobContext = SecurityContextHolder.createEmptyContext();
+        jobContext.setAuthentication(new UsernamePasswordAuthenticationToken(
+                message.getUserId(), null, List.of(new SimpleGrantedAuthority("ROLE_user"))));
+        SecurityContextHolder.setContext(jobContext);
+        if (message.getOrganizationId() != null && !message.getOrganizationId().isBlank()) {
+            TenantContext.set(message.getOrganizationId());
+        }
         try {
             Object result = execute(message);
             asyncAIJobService.markSuccess(message.getJobId(), result);
@@ -62,6 +71,12 @@ public class AsyncAIJobListener {
         } catch (Exception e) {
             log.error("异步AI任务执行失败: jobId={}", message.getJobId(), e);
             asyncAIJobService.markFailed(message.getJobId(), e.getMessage());
+        } finally {
+            TenantContext.clear();
+            SecurityContextHolder.clearContext();
+            if (previousContext != null && previousContext.getAuthentication() != null) {
+                SecurityContextHolder.setContext(previousContext);
+            }
         }
     }
 

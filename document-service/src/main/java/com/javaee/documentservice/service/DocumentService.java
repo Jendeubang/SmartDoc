@@ -65,6 +65,12 @@ public interface DocumentService {
     DocumentVO getById(String id, Long userId);
 
     /**
+     * 读取原始上传文件中的文本，不修改当前文档和版本记录。
+     * 主要用于校对等必须忠实检查原文件的场景。
+     */
+    String getOriginalSourceContent(String id, Long userId);
+
+    /**
      * 获取文档在MinIO中的存储位置。
      */
     DocumentVO getStorageLocation(String id, Long userId);

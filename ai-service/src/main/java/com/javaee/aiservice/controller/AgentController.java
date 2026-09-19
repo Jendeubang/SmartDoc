@@ -11,6 +11,8 @@ import com.javaee.aiservice.agent.execution.AgentExecutionService;
 import com.javaee.aiservice.agent.execution.model.AgentExecutionRequest;
 import com.javaee.aiservice.agent.execution.tool.AgentToolDefinition;
 import com.javaee.aiservice.conversation.ConversationManager;
+import com.javaee.aiservice.conversation.ConversationPersistenceService;
+import com.javaee.aiservice.client.DocumentServiceClient;
 import com.javaee.aiservice.rag.DocumentSegmenter;
 import com.javaee.aiservice.rag.KnowledgeBase;
 import com.javaee.aiservice.rag.PermissionAwareRagService;
@@ -41,6 +43,9 @@ public class AgentController {
     private ConversationManager conversationManager;
 
     @Autowired
+    private ConversationPersistenceService conversationPersistence;
+
+    @Autowired
     private RequestUserContext requestUserContext;
 
     @Autowired
@@ -51,6 +56,9 @@ public class AgentController {
 
     @Autowired
     private PermissionAwareRagService permissionAwareRag;
+
+    @Autowired
+    private DocumentServiceClient documentServiceClient;
 
     @PostMapping("/execute")
     @Operation(summary = "执行统一Agent链路", description = "自动完成任务规划、工具调用、RAG检索、最终回答和对话记忆")
@@ -80,7 +88,7 @@ public class AgentController {
             @Parameter(description = "文档ID") @RequestParam String documentId,
             @Parameter(description = "文档内容") @RequestBody String content) {
         permissionAwareRag.assertCanIndex(documentId);
-        Map<String, Object> metadata = userMetadata();
+        Map<String, Object> metadata = userMetadata(documentId);
         Map<String, Object> result = knowledgeIndexAgent.indexDocumentAsync(documentId, content, metadata);
         return Result.success(result);
     }
@@ -99,7 +107,7 @@ public class AgentController {
         } catch (IllegalArgumentException e) {
             return Result.fail("无效的分段策略: " + strategy);
         }
-        Map<String, Object> metadata = userMetadata();
+        Map<String, Object> metadata = userMetadata(documentId);
         metadata.put("segmentStrategy", strategyType.name());
         Map<String, Object> result = knowledgeIndexAgent.indexDocumentAsync(documentId, content, metadata);
         return Result.success(result);
@@ -137,8 +145,9 @@ public class AgentController {
     public Result<Map<String, Object>> retryKnowledgeJob(
             @Parameter(description = "任务ID") @PathVariable String jobId,
             @Parameter(description = "文档内容") @RequestBody String content) {
-        assertJobAccess(jobId, true);
-        Map<String, Object> result = knowledgeIndexAgent.retryJob(jobId, content, userMetadata());
+        Map<String, Object> job = assertJobAccess(jobId, true);
+        String documentId = String.valueOf(job.get("documentId"));
+        Map<String, Object> result = knowledgeIndexAgent.retryJob(jobId, content, userMetadata(documentId));
         return Result.success(result);
     }
 
@@ -181,6 +190,35 @@ public class AgentController {
         return Result.success(conversationManager.getConversationHistoryForUser(conversationId, userId));
     }
 
+    @GetMapping("/conversations")
+    @Operation(summary = "获取当前用户的对话列表", description = "从数据库读取长期保存的 SmartDoc AI 会话")
+    public Result<List<Map<String, Object>>> listConversations(
+            @RequestParam(defaultValue = "smartdoc-ai") String channel) {
+        return Result.success(conversationPersistence.list(requestUserContext.getRequiredUserId(), channel));
+    }
+
+    @GetMapping("/conversations/{conversationId}/messages")
+    @Operation(summary = "获取持久化对话消息")
+    public Result<List<Map<String, Object>>> getConversationMessages(@PathVariable String conversationId) {
+        return Result.success(conversationPersistence.messages(conversationId, requestUserContext.getRequiredUserId()));
+    }
+
+    @PutMapping("/conversations/{conversationId}")
+    @Operation(summary = "修改对话标题")
+    public Result<Void> renameConversation(@PathVariable String conversationId, @RequestBody Map<String, Object> body) {
+        conversationPersistence.rename(conversationId, requestUserContext.getRequiredUserId(), String.valueOf(body.getOrDefault("title", "")));
+        return Result.success();
+    }
+
+    @DeleteMapping("/conversations/{conversationId}")
+    @Operation(summary = "删除对话")
+    public Result<Void> deleteConversation(@PathVariable String conversationId) {
+        String userId = requestUserContext.getRequiredUserId();
+        conversationPersistence.delete(conversationId, userId);
+        try { conversationManager.deleteConversationForUser(conversationId, userId); } catch (Exception ignored) { }
+        return Result.success();
+    }
+
     @PostMapping("/chat")
     @Operation(summary = "Agent对话", description = "接收自然语言指令，自动判断是否走规划-执行链路")
     public Result<Map<String, Object>> chat(
@@ -205,11 +243,13 @@ public class AgentController {
         return Result.success(result);
     }
 
-    private Map<String, Object> userMetadata() {
-        return Map.of(
-                "userId", requestUserContext.getRequiredUserId(),
-                "knowledgeBaseId", "default"
-        );
+    private Map<String, Object> userMetadata(String documentId) {
+        Map<String, Object> metadata = new java.util.LinkedHashMap<>();
+        metadata.put("userId", requestUserContext.getRequiredUserId());
+        metadata.put("knowledgeBaseId", "default");
+        Object organizationId = documentServiceClient.getDocument(documentId).get("organizationId");
+        if (organizationId != null && !String.valueOf(organizationId).isBlank()) metadata.put("organizationId", organizationId);
+        return metadata;
     }
 
     private Map<String, Object> assertJobAccess(String jobId, boolean write) {

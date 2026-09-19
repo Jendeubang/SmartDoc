@@ -5,13 +5,18 @@ import request from '../utils/request'
 
 export const docApi = {
     // 获取用户所有的文档列表
-    getUserDocs: (userId) => {
-        return request.get(`/documents/user/${userId}`)
+    getUserDocs: (userId, config = {}) => {
+        return request.get(`/documents/user/${userId}`, config)
     },
 
     // 获取单个文档详情（含 content 和 summary）
     getDocDetail: (id) => {
         return request.get(`/documents/${id}`)
+    },
+
+    // 读取原始上传文件的正文（不触发重新解析或覆盖当前文档）
+    getOriginalSourceContent: (id) => {
+        return request.get(`/documents/${id}/source-content`)
     },
 
     // 新增全文搜索接口
@@ -88,7 +93,7 @@ export const docApi = {
     releaseParagraphLock: (id, paragraphId) => request.delete('/documents/' + id + '/paragraph-locks/' + paragraphId),
 
     submitToolboxJob: (data) => request.post('/documents/toolbox/jobs', data),
-    listToolboxJobs: () => request.get('/documents/toolbox/jobs'),
+    listToolboxJobs: (config = {}) => request.get('/documents/toolbox/jobs', config),
     retryToolboxJob: (jobId) => request.post(`/documents/toolbox/jobs/${jobId}/retry`),
     getToolboxJob: (jobId) => request.get(`/documents/toolbox/jobs/${jobId}`),
     downloadToolboxJob: (jobId) => request.get(`/documents/toolbox/jobs/${jobId}/download`, { responseType: 'blob' })

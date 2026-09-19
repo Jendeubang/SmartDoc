@@ -11,11 +11,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
+import jakarta.annotation.PostConstruct;
 
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
+// RAG 检索核心（简历第 2 条）：负责文档入库、向量+BM25 混合检索、查询扩展、上下文贯通与知识库统计
 @Component
 public class KnowledgeBase {
 
@@ -39,10 +44,44 @@ public class KnowledgeBase {
     @Autowired
     private DocumentSegmenter documentSegmenter;
 
+    /**
+     * 本地 BM25 索引：启动时从 Redis 构建，文档增删时增量维护。
+     * 这样查询阶段不再对 Redis 执行 SCAN + 逐条 GET。
+     */
+    private final Map<String, IndexedText> bm25Index = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** 向量召回与本地 BM25 并行执行，线程数固定，避免请求高峰无限创建线程。 */
+    private final ExecutorService retrievalExecutor = Executors.newFixedThreadPool(4, runnable -> {
+        Thread thread = new Thread(runnable, "rag-retrieval");
+        thread.setDaemon(true);
+        return thread;
+    });
+
+    @PostConstruct
+    void rebuildBm25Index() {
+        try {
+            for (String key : scanKeys(CONTENT_PREFIX + "*", 1000)) {
+                indexRedisText(key, getDocumentMetadata(key.substring(CONTENT_PREFIX.length())));
+            }
+            for (String key : scanKeys(SEGMENT_PREFIX + "*", 1000)) {
+                indexRedisText(key, vectorStoreMetadata(key.substring(SEGMENT_PREFIX.length())));
+            }
+            log.info("BM25 本地索引构建完成: entries={}", bm25Index.size());
+        } catch (Exception e) {
+            log.warn("BM25 本地索引构建失败，后续请求将尝试从 Redis 恢复", e);
+        }
+    }
+
+    @jakarta.annotation.PreDestroy
+    void shutdownRetrievalExecutor() {
+        retrievalExecutor.shutdownNow();
+    }
+
     public void addDocument(String documentId, String content, Map<String, Object> metadata) {
         addDocumentWithSegment(documentId, content, metadata, DocumentSegmenter.StrategyType.AUTO);
     }
 
+    // 写入文档：保存正文与元数据，分段后逐段入库并登记分段 ID 列表
     public void addDocumentWithSegment(String documentId, String content, Map<String, Object> metadata,
                                        DocumentSegmenter.StrategyType strategyType) {
         log.info("添加文档到知识库: documentId={}, strategy={}", documentId, strategyType);
@@ -57,6 +96,7 @@ public class KnowledgeBase {
 
             redisTemplate.opsForValue().set(contentKey, content);
             redisTemplate.opsForHash().putAll(docKey, docMetadata);
+            indexText(contentKey, documentId, content, docMetadata);
 
             List<SegmentStrategy.Segment> segments = documentSegmenter.segment(documentId, content, strategyType);
 
@@ -85,8 +125,10 @@ public class KnowledgeBase {
                     segmentMetadata.put("prevChunkId", segment.getPrevChunkId());
                 }
                 if (segment.getNextChunkId() != null) {
-                    segmentMetadata.put("nextChunkId", segment.getNextChunkId());
+                segmentMetadata.put("nextChunkId", segment.getNextChunkId());
                 }
+
+                indexText(segmentContentKey, segmentId, segment.getContent(), segmentMetadata);
 
                 // 使用文本内容存储，由 VectorStore 内部调用 EmbeddingModel 计算向量
                 vectorStore.store(segmentId, segment.getContent(), segmentMetadata);
@@ -106,6 +148,7 @@ public class KnowledgeBase {
         addDocumentWithSegment(documentId, content, metadata, strategyType);
     }
 
+    // 删除文档及其所有分段、向量和相关元数据
     public void removeDocument(String documentId) {
         log.info("从知识库移除文档: documentId={}", documentId);
 
@@ -117,9 +160,16 @@ public class KnowledgeBase {
                 vectorStore.delete(segmentId);
             }
 
+            // 无分段文档会直接以 documentId 写入向量库，删除时也必须清理该向量。
+            vectorStore.delete(documentId);
+
             redisTemplate.delete(DOC_SEGMENTS_PREFIX + documentId);
             redisTemplate.delete(DOCUMENT_PREFIX + documentId);
             redisTemplate.delete(CONTENT_PREFIX + documentId);
+            bm25Index.remove(CONTENT_PREFIX + documentId);
+            for (String segmentId : segmentIds) {
+                bm25Index.remove(SEGMENT_PREFIX + segmentId);
+            }
 
             log.info("文档移除成功: documentId={}, 删除了{}个分段", documentId, segmentIds.size());
         } catch (Exception e) {
@@ -208,6 +258,7 @@ public class KnowledgeBase {
         return search(query, topK, strategyType, Collections.emptyMap());
     }
 
+    // 纯向量检索：带查询扩展与空结果兜底，最后为命中分块贯通上下文
     public List<Map<String, Object>> search(String query, int topK,
                                             DocumentSegmenter.StrategyType strategyType,
                                             Map<String, Object> filters) {
@@ -233,7 +284,10 @@ public class KnowledgeBase {
                 if (content == null) {
                     content = getDocumentContent(id);
                 }
-                result.put("content", content);
+                // Redis 短暂不可用时保留 HNSW 返回的已有内容；正常情况下用 Redis 中的最新内容覆盖。
+                if (content != null) {
+                    result.put("content", content);
+                }
             }
 
             // [NEW] 上下文贯通：为匹配的分块拉取相邻分块
@@ -255,9 +309,17 @@ public class KnowledgeBase {
         return hybridSearch(query, topK, strategyType, Collections.emptyMap());
     }
 
+    // 混合检索：向量 + BM25 双路召回，去重合并取 topK，再贯通上下文
     public List<Map<String, Object>> hybridSearch(String query, int topK,
                                                    DocumentSegmenter.StrategyType strategyType,
                                                    Map<String, Object> filters) {
+        return hybridSearchInternal(query, topK, strategyType, filters, true);
+    }
+
+    private List<Map<String, Object>> hybridSearchInternal(String query, int topK,
+                                                            DocumentSegmenter.StrategyType strategyType,
+                                                            Map<String, Object> filters,
+                                                            boolean includeContext) {
         log.info("混合检索: query={}, topK={}, strategy={}", query, topK, strategyType);
 
         try {
@@ -265,11 +327,13 @@ public class KnowledgeBase {
             String expandedQuery = expandQuery(query);
             String effectiveQuery = expandedQuery != null ? expandedQuery : query;
 
-            // 向量检索 — 由 VectorStore 内部调用 EmbeddingModel
-            List<Map<String, Object>> vectorResults = vectorStore.search(effectiveQuery, topK * 3, filters);
-
-            // BM25 检索
-            List<Map<String, Object>> bm25Results = bm25Search(effectiveQuery, topK * 3, filters);
+            // 向量检索与本地 BM25 并行，降低两条召回链路的总等待时间。
+            CompletableFuture<List<Map<String, Object>>> vectorFuture = CompletableFuture.supplyAsync(
+                    () -> vectorStore.search(effectiveQuery, topK * 3, filters), retrievalExecutor);
+            CompletableFuture<List<Map<String, Object>>> bm25Future = CompletableFuture.supplyAsync(
+                    () -> bm25Search(effectiveQuery, topK * 3, filters), retrievalExecutor);
+            List<Map<String, Object>> vectorResults = vectorFuture.join();
+            List<Map<String, Object>> bm25Results = bm25Future.join();
 
             // [NEW] 空结果兜底：回退到原始查询 + 扩大检索范围
             if (vectorResults.isEmpty() && bm25Results.isEmpty() && expandedQuery != null) {
@@ -290,7 +354,9 @@ public class KnowledgeBase {
                     if (content == null) {
                         content = getDocumentContent(id);
                     }
-                    mutable.put("content", content);
+                    if (content != null) {
+                        mutable.put("content", content);
+                    }
                     mutable.put("source", "vector");
                     combinedResults.add(mutable);
                 }
@@ -312,9 +378,7 @@ public class KnowledgeBase {
             }
 
             List<Map<String, Object>> finalResults = combinedResults.subList(0, Math.min(topK, combinedResults.size()));
-            // [NEW] 上下文贯通
-            finalResults = bridgeContext(finalResults);
-            return finalResults;
+            return includeContext ? bridgeContext(finalResults) : finalResults;
 
         } catch (Exception e) {
             log.error("混合检索失败", e);
@@ -328,6 +392,7 @@ public class KnowledgeBase {
         return hybridSearchWithRerank(query, topK, rerankStrategy, strategyType, Collections.emptyMap());
     }
 
+    // 混合检索 + Rerank 精排：先召回更大候选集，再用重排序器精排取 topK
     public List<Map<String, Object>> hybridSearchWithRerank(String query, int topK,
                                                             Reranker.RerankStrategy rerankStrategy,
                                                             DocumentSegmenter.StrategyType strategyType,
@@ -336,9 +401,10 @@ public class KnowledgeBase {
                 query, topK, strategyType, rerankStrategy);
 
         try {
-            List<Map<String, Object>> candidates = hybridSearch(query, topK * 3, strategyType, filters);
+            // 先召回再精排；上下文贯通放到精排后，避免给大量候选读取相邻分块。
+            List<Map<String, Object>> candidates = hybridSearchWithoutContext(query, topK * 3, strategyType, filters);
             List<Map<String, Object>> results = reranker.rerank(query, candidates, rerankStrategy, topK);
-            return results;
+            return bridgeContext(results);
         } catch (Exception e) {
             log.error("混合检索加重排序失败", e);
             throw new RuntimeException("混合检索加重排序失败: " + e.getMessage(), e);
@@ -360,37 +426,23 @@ public class KnowledgeBase {
         return hybridSearchWithRerank(query, topK, rerankStrategy, DocumentSegmenter.StrategyType.CHAPTER, filters);
     }
 
+    // BM25 关键词召回：扫描全部分段/文档计算相关性得分，过滤后按分数降序返回
     private List<Map<String, Object>> bm25Search(String query, int topK, Map<String, Object> filters) {
         List<Map<String, Object>> results = new ArrayList<>();
-        List<String> contentKeys = scanKeys(CONTENT_PREFIX + "*", 1000);
-        List<String> segmentKeys = scanKeys(SEGMENT_PREFIX + "*", 1000);
-
-        Set<String> allKeys = new LinkedHashSet<>();
-        if (contentKeys != null) allKeys.addAll(contentKeys);
-        if (segmentKeys != null) allKeys.addAll(segmentKeys);
-
-        if (allKeys.isEmpty()) {
+        if (bm25Index.isEmpty()) {
+            rebuildBm25Index();
+        }
+        if (bm25Index.isEmpty()) {
             return results;
         }
 
-        for (String key : allKeys) {
-            String docId = key.substring(key.lastIndexOf(":") + 1);
-            Map<String, Object> metadata = key.startsWith(SEGMENT_PREFIX)
-                    ? vectorStoreMetadata(docId)
-                    : getDocumentMetadata(docId);
-            if (!matchesFilters(metadata, filters)) {
+        for (IndexedText indexed : bm25Index.values()) {
+            if (!matchesFilters(indexed.metadata(), filters)) {
                 continue;
             }
-            String content = (String) redisTemplate.opsForValue().get(key);
-
-            if (content != null) {
-                float score = computeBM25(query, content);
-                if (score > 0) {
-                    results.add(Map.of(
-                        "id", docId,
-                        "similarity", score
-                    ));
-                }
+            float score = computeBM25(query, indexed.terms());
+            if (score > 0) {
+                results.add(Map.of("id", indexed.id(), "similarity", score));
             }
         }
 
@@ -402,13 +454,46 @@ public class KnowledgeBase {
         return results.subList(0, Math.min(topK, results.size()));
     }
 
+    private List<Map<String, Object>> hybridSearchWithoutContext(String query, int topK,
+                                                                   DocumentSegmenter.StrategyType strategyType,
+                                                                   Map<String, Object> filters) {
+        return hybridSearchInternal(query, topK, strategyType, filters, false);
+    }
+
+    private void indexText(String redisKey, String id, String content, Map<String, Object> metadata) {
+        if (content == null || content.isBlank()) {
+            return;
+        }
+        bm25Index.put(redisKey, new IndexedText(
+                id,
+                content.toLowerCase(Locale.ROOT).split("\\s+"),
+                metadata == null ? Collections.emptyMap() : new HashMap<>(metadata)));
+    }
+
+    private void indexRedisText(String redisKey, Map<String, Object> metadata) {
+        Object rawContent = redisTemplate.opsForValue().get(redisKey);
+        if (rawContent == null) {
+            return;
+        }
+        String id = redisKey.substring(redisKey.lastIndexOf(':') + 1);
+        indexText(redisKey, id, rawContent.toString(), metadata);
+    }
+
+    // 简化 BM25 打分：统计查询词与文档词的词频贡献
     private float computeBM25(String query, String document) {
         if (query == null || document == null) {
             return 0.0f;
         }
 
-        String[] queryTerms = query.toLowerCase().split("\\s+");
-        String[] docTerms = document.toLowerCase().split("\\s+");
+        return computeBM25(query, document.toLowerCase(Locale.ROOT).split("\\s+"));
+    }
+
+    private float computeBM25(String query, String[] docTerms) {
+        if (query == null || docTerms == null) {
+            return 0.0f;
+        }
+
+        String[] queryTerms = query.toLowerCase(Locale.ROOT).split("\\s+");
 
         int docLength = docTerms.length;
         if (docLength == 0) {
@@ -436,6 +521,7 @@ public class KnowledgeBase {
         return score / queryTerms.length;
     }
 
+    // 扫描并返回知识库中所有文档 ID
     public List<String> getAllDocumentIds() {
         try {
             List<String> keys = scanKeys(DOCUMENT_PREFIX + "*", 1000);
@@ -477,6 +563,7 @@ public class KnowledgeBase {
         return getStatistics(null, null);
     }
 
+    // 知识库统计：统计指定范围内的文档数、分段数与总字符数
     public Map<String, Object> getStatistics(String userId, String knowledgeBaseId) {
         Map<String, Object> stats = new HashMap<>();
 
@@ -621,6 +708,7 @@ public class KnowledgeBase {
         }
     }
 
+    // 归一化元数据：补全默认的 userId/knowledgeBaseId，用于多用户知识库隔离
     private Map<String, Object> normalizeMetadata(Map<String, Object> metadata) {
         Map<String, Object> normalized = metadata == null ? new HashMap<>() : new HashMap<>(metadata);
         normalized.putIfAbsent("userId", "system");
@@ -628,6 +716,7 @@ public class KnowledgeBase {
         return normalized;
     }
 
+    // 用 SCAN 游标遍历匹配前缀的 Redis key，避免 KEYS 命令阻塞
     private List<String> scanKeys(String pattern, int count) {
         List<String> keys = new ArrayList<>();
         ScanOptions options = ScanOptions.scanOptions().match(pattern).count(count).build();
@@ -639,6 +728,7 @@ public class KnowledgeBase {
         return keys;
     }
 
+    // 判断元数据是否命中所有过滤条件，用于多用户/知识库维度的隔离过滤
     private boolean matchesFilters(Map<String, Object> metadata, Map<String, Object> filters) {
         if (filters == null || filters.isEmpty()) {
             return true;
@@ -656,6 +746,7 @@ public class KnowledgeBase {
         return true;
     }
 
+    // 读取分块在向量库中的元数据
     private Map<String, Object> vectorStoreMetadata(String id) {
         try {
             Map<Object, Object> hash = redisTemplate.opsForHash().entries("metadata:" + id);
@@ -668,4 +759,6 @@ public class KnowledgeBase {
             return Collections.emptyMap();
         }
     }
+
+    private record IndexedText(String id, String[] terms, Map<String, Object> metadata) {}
 }

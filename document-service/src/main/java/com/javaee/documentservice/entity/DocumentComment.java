@@ -15,6 +15,7 @@ public class DocumentComment {
     private String id;
 
     private String documentId;
+    private String organizationId;
 
     private Long userId;
 

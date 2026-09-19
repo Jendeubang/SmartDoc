@@ -4,10 +4,12 @@ import com.javaee.fileservice.client.DocumentServiceClient;
 import com.javaee.fileservice.config.FileStorageConfig;
 import com.javaee.fileservice.security.BucketPermissionService;
 import com.javaee.fileservice.security.FileUploadValidator;
+import com.javaee.fileservice.security.MalwareScanner;
 import com.javaee.fileservice.service.FileMetadataService;
 import com.javaee.fileservice.service.FileService;
 import com.javaee.fileservice.util.DocumentTextExtractor;
 import com.javaee.fileservice.util.FileUtils;
+import com.javaee.common.config.security.TenantContext;
 import io.minio.BucketExistsArgs;
 import io.minio.MakeBucketArgs;
 import io.minio.GetObjectArgs;
@@ -57,6 +59,9 @@ public class FileServiceImpl implements FileService {
     @Autowired
     private FileUploadValidator fileUploadValidator;
 
+    @Autowired
+    private MalwareScanner malwareScanner;
+
     @Autowired(required = false)
     private DocumentServiceClient documentServiceClient;
 
@@ -76,6 +81,7 @@ public class FileServiceImpl implements FileService {
 
             // ★ 提前读取文件字节，避免后续流被消费
             byte[] fileBytes = file.getBytes();
+            malwareScanner.scan(fileBytes);
 
             // 根据存储类型上传文件
             if ("local".equals(fileStorageConfig.getStorageType())) {
@@ -152,6 +158,7 @@ public class FileServiceImpl implements FileService {
                 fileMetadata.setBucketName(fileStorageConfig.getBucketName());
                 fileMetadata.setObjectKey(storageFileName);
                 fileMetadata.setCreateBy(currentUserId());
+                fileMetadata.setOrganizationId(currentOrganizationId());
                 fileMetadataService.saveMetadata(fileMetadata);
             } catch (Exception e) {
                 // 数据库不可用时，继续执行，只记录日志
@@ -232,6 +239,7 @@ public class FileServiceImpl implements FileService {
                 }
 
                 mergedBytes = outputStream.toByteArray();
+                malwareScanner.scan(mergedBytes);
                 Files.write(storagePath, mergedBytes);
                 outputStream.close();
             } else if ("minio".equals(fileStorageConfig.getStorageType())) {
@@ -251,6 +259,7 @@ public class FileServiceImpl implements FileService {
                 }
 
                 mergedBytes = outputStream.toByteArray();
+                malwareScanner.scan(mergedBytes);
                 outputStream.close();
 
                 // 上传合并后的文件
@@ -282,6 +291,7 @@ public class FileServiceImpl implements FileService {
                 fileMetadata.setBucketName(fileStorageConfig.getBucketName());
                 fileMetadata.setObjectKey(storageFileName);
                 fileMetadata.setCreateBy(currentUserId());
+                fileMetadata.setOrganizationId(currentOrganizationId());
                 fileMetadataService.saveMetadata(fileMetadata);
             } catch (Exception e) {
                 // 数据库不可用时，忽略错误
@@ -829,6 +839,7 @@ public class FileServiceImpl implements FileService {
                     newFileMetadata.setBucketName(fileMetadata.getBucketName());
                     newFileMetadata.setObjectKey(newStorageFileName);
                     newFileMetadata.setCreateBy(currentUserId());
+                    newFileMetadata.setOrganizationId(fileMetadata.getOrganizationId());
                     fileMetadataService.saveMetadata(newFileMetadata);
                 }
             } catch (Exception e) {
@@ -906,5 +917,9 @@ public class FileServiceImpl implements FileService {
             return authentication.getPrincipal().toString();
         }
         throw new SecurityException("用户未认证，请先登录");
+    }
+
+    private String currentOrganizationId() {
+        return TenantContext.get();
     }
 }

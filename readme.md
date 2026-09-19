@@ -7,7 +7,7 @@ SmartDoc 是一个基于 Java 17 与 Spring Cloud 的文档全流程管理和智
 - 文档库：上传、解析状态、图片/PDF 预览、重命名、分类、收藏、回收站、恢复和永久删除。
 - AI 对话：DeepSeek 多轮对话、历史会话、选择已有文档、全知识库问答、来源片段引用。
 - Agent：任务规划、工具调用、观察、反思重规划、危险操作审批、WebSocket 进度推送。
-- RAG：自动/章节/定长/语义分段，DashScope Embedding，Redis 元数据持久化，内存 HNSW、BM25 混合检索和 Rerank。
+- RAG：自动/章节/定长/语义分段，DeepSeek Embedding，Redis 元数据持久化，内存 HNSW、BM25 混合检索和 Rerank。
 - 工具箱：OCR、PDF 拆分合并、Word/PDF 转换、表格导出 Excel、文档翻译、AI 改写、图片处理、录音会议纪要、思维导图和批处理任务中心。
 - 智能练题：多文档题目提取、题型分类、即时判题、DeepSeek 简答评分、进度恢复、错题本、收藏、筛选和报告导出。
 - 安全与稳定性：JWT、用户级 MinIO 桶隔离、上传白名单与文件头校验、限时协作授权、Redis 任务恢复、模型重试、Actuator 健康检查和 Prometheus 指标。
@@ -31,8 +31,8 @@ flowchart LR
     FILE --> MQ[(RabbitMQ)]
     DOC --> MQ
     AI --> MQ
-    AI --> DEEPSEEK["DeepSeek Chat"]
-    AI --> DASHSCOPE["DashScope Embedding / Rerank / ASR"]
+    AI --> DEEPSEEK["DeepSeek Chat / Embedding"]
+    AI --> DASHSCOPE["DashScope Rerank / ASR"]
 ```
 
 详细链路见 [架构说明](docs/ARCHITECTURE.md)，主要接口见 [API 概览](docs/API.md)。
@@ -41,7 +41,7 @@ flowchart LR
 
 - 后端：Java 17、Spring Boot 3.2、Spring Cloud 2023、Spring AI、MyBatis-Plus
 - 数据与中间件：MySQL 8、Redis 7、RabbitMQ、MinIO、HNSW
-- AI：DeepSeek Chat、DashScope Embedding/Rerank/Qwen ASR、Tesseract OCR
+- AI：DeepSeek Chat/Embedding、DashScope Rerank/Qwen ASR、Tesseract OCR
 - 前端：Vue 3、Vite 4、Element Plus、Axios
 - 部署与监控：Docker Compose、Docker Swarm、Actuator、Prometheus
 

@@ -1,0 +1,12 @@
+# 上传 evaluation/fixtures 内的两份文档并完成索引后，复制本文件为 rag_qa_v1.jsonl。
+# 只需将两类 REPLACE_*_DOCUMENT_ID 替换成浏览器地址栏中对应的真实文档 ID。
+{"id":"qa-0001","question":"临时远程办公单次最长可以申请多少个工作日？","knowledgeBaseId":"default","expectedDocumentIds":["8fd8e510803f174be57e4f2f6ecc0e03"],"referenceAnswer":"单次临时远程办公最长为 5 个工作日。","category":"远程办公制度","difficulty":"easy"}
+{"id":"qa-0002","question":"连续远程办公超过 20 个工作日需要哪些审批或备案？","knowledgeBaseId":"default","expectedDocumentIds":["8fd8e510803f174be57e4f2f6ecc0e03"],"referenceAnswer":"需要直属主管和部门负责人审批，并由人力资源部备案。","category":"远程办公制度","difficulty":"medium"}
+{"id":"qa-0003","question":"远程办公期间员工每天应在什么时间保持在线？","knowledgeBaseId":"default","expectedDocumentIds":["8fd8e510803f174be57e4f2f6ecc0e03"],"referenceAnswer":"工作日 09:30 至 18:30，应保持企业即时通信工具在线。","category":"远程办公制度","difficulty":"easy"}
+{"id":"qa-0004","question":"发现设备遗失或疑似资料外泄后，员工多久内必须报告？","knowledgeBaseId":"default","expectedDocumentIds":["8fd8e510803f174be57e4f2f6ecc0e03"],"referenceAnswer":"必须在 30 分钟内向信息安全值班群报告并通知直属主管。","category":"远程办公制度","difficulty":"medium"}
+{"id":"qa-0005","question":"常态化远程办公的网络补贴每月最高是多少？","knowledgeBaseId":"default","expectedDocumentIds":["8fd8e510803f174be57e4f2f6ecc0e03"],"referenceAnswer":"每人每月最高 80 元。","category":"远程办公制度","difficulty":"easy"}
+{"id":"qa-0006","question":"北辰项目一共分为几个交付阶段？","knowledgeBaseId":"default","expectedDocumentIds":["c0bc9a9041a726e0d025dc2320d1d44e"],"referenceAnswer":"分为需求确认、开发联调、试点运行、正式交付四个阶段。","category":"项目交付方案","difficulty":"easy"}
+{"id":"qa-0007","question":"北辰项目的日销售数据同步延迟验收标准是多少？","knowledgeBaseId":"default","expectedDocumentIds":["c0bc9a9041a726e0d025dc2320d1d44e"],"referenceAnswer":"日销售数据同步延迟不超过 15 分钟。","category":"项目交付方案","difficulty":"easy"}
+{"id":"qa-0008","question":"什么情况会被判定为北辰项目的高风险？","knowledgeBaseId":"default","expectedDocumentIds":["c0bc9a9041a726e0d025dc2320d1d44e"],"referenceAnswer":"可能导致交付延期超过 5 个工作日、造成关键数据错误或影响超过 30 家门店。","category":"项目交付方案","difficulty":"hard"}
+{"id":"qa-0009","question":"技术负责人需要在多长时间内完成需求变更的影响评估？","knowledgeBaseId":"default","expectedDocumentIds":["c0bc9a9041a726e0d025dc2320d1d44e"],"referenceAnswer":"技术负责人应在 2 个工作日内完成工作量、技术风险和数据影响评估。","category":"项目交付方案","difficulty":"medium"}
+{"id":"qa-0010","question":"北辰项目发布后，哪些情况需要立即停止发布并回滚？","knowledgeBaseId":"default","expectedDocumentIds":["c0bc9a9041a726e0d025dc2320d1d44e"],"referenceAnswer":"核心接口连续 10 分钟成功率低于 98%、数据同步大面积中断或出现数据错乱。","category":"项目交付方案","difficulty":"hard"}

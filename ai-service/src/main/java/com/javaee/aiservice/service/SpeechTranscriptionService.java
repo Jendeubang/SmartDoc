@@ -16,6 +16,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+// 语音转写服务（对应简历第 5 条「录音 ASR 转会议纪要」）：DashScope Qwen ASR 转写录音 + DeepSeek 生成结构化会议纪要
 /** DashScope Qwen ASR transcription, followed by DeepSeek meeting-minute generation. */
 @Service
 public class SpeechTranscriptionService {
@@ -32,6 +33,7 @@ public class SpeechTranscriptionService {
 
     public SpeechTranscriptionService(ChatService chatService) { this.chatService = chatService; }
 
+    // 核心入口：校验录音 → ASR 转写 → 构造提示词交由 DeepSeek 生成结构化会议纪要
     public MeetingMinutes transcribeAndSummarize(MultipartFile audio, String title, String language) {
         if (audio == null || audio.isEmpty()) throw new IllegalArgumentException("请上传录音文件");
         if (dashScopeApiKey == null || dashScopeApiKey.isBlank()) {
@@ -51,6 +53,7 @@ public class SpeechTranscriptionService {
     }
 
     @SuppressWarnings("unchecked")
+    // 调用 DashScope 兼容模式接口：录音 Base64 编码为 data URI，以 input_audio 消息发送并解析转写结果
     private String transcribe(MultipartFile audio, String language) {
         try {
             String mime = audio.getContentType() == null || audio.getContentType().isBlank() ? "audio/mpeg" : audio.getContentType();
@@ -75,6 +78,7 @@ public class SpeechTranscriptionService {
     }
 
     @SuppressWarnings("unchecked")
+    // 从 DashScope 响应中兼容多种结构提取转写文本（choices/output/text）
     private String extractTranscript(Map<String, Object> response) {
         if (response == null) return "";
         Object choices = response.get("choices");
@@ -88,6 +92,7 @@ public class SpeechTranscriptionService {
         throw new IllegalStateException("DashScope 响应中未找到转写文本");
     }
 
+    // 递归取出异常链最底层的错误信息，便于定位真实失败原因
     private String rootMessage(Throwable error) { Throwable current=error; while(current.getCause()!=null) current=current.getCause(); return current.getMessage()==null ? error.getClass().getSimpleName() : current.getMessage(); }
     public record MeetingMinutes(String transcript, String minutes, String asrModel) {}
 }

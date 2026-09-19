@@ -22,6 +22,12 @@ import java.util.List;
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
+    private final SessionTokenValidator sessions;
+
+    public JwtAuthenticationFilter(SessionTokenValidator sessions) {
+        this.sessions = sessions;
+    }
+
     @Override
     protected void doFilterInternal(jakarta.servlet.http.HttpServletRequest request, jakarta.servlet.http.HttpServletResponse response, jakarta.servlet.FilterChain chain) 
             throws ServletException, IOException {
@@ -33,7 +39,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 String token = authHeader.substring("Bearer ".length());
                 
                 // 验证令牌
-                if (JwtUtils.validateToken(token)) {
+                if (JwtUtils.validateAccessToken(token)) {
+                    sessions.requireActiveAccessToken(token);
                     // 解析令牌获取用户信息
                     Claims claims = JwtUtils.parseToken(token);
                     Long userId = claims.get("userId", Long.class);
@@ -63,6 +70,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         // 继续过滤链
         chain.doFilter(request, response);
     }
+
 
     private void addGroupAuthorities(List<SimpleGrantedAuthority> authorities, Object groupsClaim) {
         if (groupsClaim instanceof Collection<?> groups) {

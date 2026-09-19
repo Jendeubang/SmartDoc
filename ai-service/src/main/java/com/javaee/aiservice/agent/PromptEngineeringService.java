@@ -20,6 +20,8 @@ import java.util.Map;
  * 使用Spring AI内置工具实现智能提示词拼接
  * 支持多种提示词模板的管理和动态生成
  */
+// 类职责：提示词工程服务，对应简历第4条「AI 智能对话及文档分析」——
+// 提供摘要、纠错、关键词提取、RAG 问答、任务规划等提示词模板。
 @Service
 public class PromptEngineeringService {
 
@@ -68,6 +70,7 @@ public class PromptEngineeringService {
             请提供准确、简洁的回答。
             """;
 
+    // RAG 知识库问答模板：要求模型严格基于知识库片段作答，避免编造。
     private static final String RAG_ANSWER_TEMPLATE = """
             你是DocAI知识库问答助手。请严格基于【知识库片段】回答问题。
             如果片段中没有答案，请回答“知识库中未找到相关信息”，不要编造。
@@ -226,6 +229,7 @@ public class PromptEngineeringService {
         return template.render(params);
     }
 
+    // 生成 RAG 知识库问答提示词。
     public String createRagAnswerPrompt(String question, String knowledgeContext) {
         PromptTemplate template = new PromptTemplate(RAG_ANSWER_TEMPLATE);
         Map<String, Object> params = new HashMap<>();

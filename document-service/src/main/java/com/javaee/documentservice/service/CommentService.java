@@ -11,9 +11,9 @@ public interface CommentService {
 
     List<CommentVO> getCommentsByDocumentId(String documentId);
 
-    CommentVO getCommentById(String id);
+    CommentVO getCommentById(String documentId, String id);
 
-    void deleteComment(String id, Long userId);
+    void deleteComment(String documentId, String id, Long userId);
 
-    List<CommentVO> getReplies(String parentId);
+    List<CommentVO> getReplies(String documentId, String parentId);
 }

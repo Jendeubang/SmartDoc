@@ -4,17 +4,20 @@
     <!-- 左侧会话历史导航 -->
     <aside class="chat-sidebar">
       <div class="sidebar-top">
-        <div class="brand-back" @click="$router.push('/dashboard')">
+        <button type="button" class="brand-back" @click="$router.push('/dashboard')">
           <el-icon><ArrowLeft /></el-icon> 返回工作台
-        </div>
+        </button>
         <el-button class="new-chat-btn" icon="Plus" plain @click="startNewChat">开启新话题</el-button>
 
         <div class="history-group">
           <div class="group-title">历史会话</div>
-          <div class="history-item active">
+          <div v-if="chatConversationsLoading" class="history-loading">正在读取历史会话...</div>
+          <button v-for="conversation in chatConversations" :key="conversation.id" type="button" class="history-item" :class="{ active: String(conversation.id) === String(currentConvId) }" @click="openChatConversation(conversation)">
             <el-icon><ChatLineRound /></el-icon>
-            <span class="text">{{ chatTitle }}</span>
-          </div>
+            <span class="text">{{ conversation.title || '新对话' }}</span>
+            <el-button class="history-delete" link icon="Delete" title="删除会话" @click.stop="deleteChatConversation(conversation)" />
+          </button>
+          <el-empty v-if="!chatConversationsLoading && !chatConversations.length" description="暂无历史会话" :image-size="42" />
         </div>
       </div>
       <div class="sidebar-bottom">
@@ -84,6 +87,8 @@
                   </div>
                 </div>
 
+                <AiMessageActions :feedback="msg.feedback" @copy="copyAiMessage(msg)" @retry="retryAiMessage(i)" @feedback="value => setAiFeedback(msg, value)" />
+
               </div>
             </div>
           </div>
@@ -102,13 +107,7 @@
 
       <!-- 底部悬浮输入区 (支持 RAG 切换) -->
       <div class="chat-input-container">
-        <div class="chat-context-row">
-          <span class="chat-context-label"><el-icon><FolderOpened /></el-icon> 文档上下文</span>
-          <el-select v-model="selectedChatDocumentIds" class="chat-document-select" multiple collapse-tags collapse-tags-tooltip clearable filterable :loading="chatDocumentsLoading" placeholder="不选择时检索全部知识库">
-            <el-option v-for="doc in chatDocuments" :key="doc.id" :label="doc.title" :value="doc.id" />
-          </el-select>
-        </div>
-        <div class="chat-context-hint">{{ selectedChatDocumentIds.length ? `已选择 ${selectedChatDocumentIds.length} 份文档，AI 将优先依据这些文档回答` : '未选择文档时，AI 将根据问题检索你的全部知识库' }}</div>
+        <AiContextBar v-model="selectedChatDocumentIds" :documents="chatDocuments" :loading="chatDocumentsLoading" :uploading="chatUploadLoading" :rag-enabled="isRagMode" :error="chatDocumentsError" @upload="openChatFilePicker" />
         <div class="input-wrapper-inner" :class="{ 'is-focused': isInputFocused, 'rag-active': isRagMode }">
           <!-- 模式切换：气泡/书本图标 -->
           <el-tooltip :content="isRagMode ? '已开启：基于已索引文档回答' : '点击后：基于已索引文档回答'" placement="top">
@@ -456,6 +455,8 @@ import { agentApi } from '../../api/agent'
 import { useAgentProgress } from '../../composables/useAgentProgress.js'
 import request from '../../utils/request'
 import CollaboratePanel from '../../collaboration/CollaboratePanel.vue'
+import AiContextBar from '../../components/editor/AiContextBar.vue'
+import AiMessageActions from '../../components/editor/AiMessageActions.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 const route = useRoute(); const router = useRouter(); const docId = route.params.id
 
@@ -472,8 +473,10 @@ const isImageDocument = computed(() => Boolean(sourceFileId.value) && imageExten
 const isPdfDocument = computed(() => Boolean(sourceFileId.value) && /\.pdf$/i.test(docName.value || ''))
 const isSourcePreview = computed(() => isImageDocument.value || isPdfDocument.value)
 const userMsg = ref(''); const isAiThinking = ref(false); const chatHistory = ref([]); const currentConvId = ref('')
+const chatConversations = ref([]); const chatConversationsLoading = ref(false)
 const chatFileInputRef = ref(null); const chatUploadLoading = ref(false)
 const chatDocuments = ref([]); const chatDocumentsLoading = ref(false); const selectedChatDocumentIds = ref([])
+const chatDocumentsError = ref('')
 const showAiBall = ref(false); const ballStyle = reactive({ top: '0px', left: '0px' }); const selectedText = ref('')
 const showHistory = ref(false); const versionList = ref([])
 const diffFrom = ref(null); const diffTo = ref(null); const versionDiff = ref(null); const diffLoading = ref(false)
@@ -612,17 +615,60 @@ const fetchModels = async () => {
   }
 }
 
+const fetchChatConversations = async (showLoading = true) => {
+  if (!isChatMode.value) return
+  if (showLoading) chatConversationsLoading.value = true
+  try {
+    const response = await agentApi.listConversations('smartdoc-ai')
+    chatConversations.value = response.data || []
+  } catch (error) {
+    console.warn('读取 SmartDoc AI 历史会话失败', error)
+    if (showLoading) ElMessage.warning('历史会话暂时无法加载，新消息仍可正常发送')
+  } finally {
+    if (showLoading) chatConversationsLoading.value = false
+  }
+}
+
+const openChatConversation = async conversation => {
+  if (!conversation?.id || isAiThinking.value) return
+  try {
+    const response = await agentApi.getConversationMessages(conversation.id)
+    const messages = response.data || []
+    currentConvId.value = String(conversation.id)
+    chatTitle.value = conversation.title || '新对话'
+    chatHistory.value = messages.map(message => ({
+      role: message.role === 'user' ? 'user' : 'ai',
+      text: message.content || ''
+    }))
+    localStorage.setItem(`smartdoc_ai_current_conversation_${currentUserId.value || 'guest'}`, currentConvId.value)
+    scrollToBottom()
+  } catch (error) {
+    ElMessage.error(error?.message || '读取会话记录失败')
+  }
+}
+
+const deleteChatConversation = async conversation => {
+  try {
+    await ElMessageBox.confirm(`确定删除会话“${conversation.title || '新对话'}”吗？`, '删除会话', { type: 'warning' })
+    await agentApi.deleteConversation(conversation.id)
+    const deletingCurrent = String(currentConvId.value) === String(conversation.id)
+    await fetchChatConversations(false)
+    if (deletingCurrent) await startNewChat()
+    ElMessage.success('会话已删除')
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(error?.message || '删除会话失败')
+  }
+}
+
 // ===== 1. 加载文档与初始化 AI =====
 const loadDocData = async () => {
   const uid = localStorage.getItem('userId') || '1'
   currentUserId.value = uid
   userApi.getUserInfo(uid).then(r => currentUserName.value = r.data.username || 'aa').catch(()=>{})
 
-  // 从 sessionStorage 恢复对话ID
-  const savedConvId = sessionStorage.getItem('doc_conv_' + docId)
-  if (savedConvId) {
-    currentConvId.value = savedConvId
-  }
+  // 文档内助理沿用独立会话；SmartDoc AI 页面从服务端恢复历史。
+  const savedConvId = !isChatMode.value ? sessionStorage.getItem('doc_conv_' + docId) : ''
+  if (savedConvId) currentConvId.value = savedConvId
 
   // 如果有历史对话ID，加载聊天记录
   if (!isChatMode.value && currentConvId.value) {
@@ -647,11 +693,19 @@ const loadDocData = async () => {
   }
 
   if (isChatMode.value) {
+    await fetchChatConversations()
     const task = sessionStorage.getItem('global_ai_task')
     if (task) {
+      await startNewChat()
       chatTitle.value = task.length > 10 ? task.substring(0, 10) + '...' : task
       userMsg.value = task; sessionStorage.removeItem('global_ai_task'); setTimeout(() => handleSend(), 500)
-    } else { chatHistory.value.push({ role: 'ai', text: 'Hi！我是 SmartDoc 智能伙伴，今天需要我帮你完成什么工作？' }) }
+    } else if (chatConversations.value.length) {
+      const savedId = localStorage.getItem(`smartdoc_ai_current_conversation_${uid}`)
+      const target = chatConversations.value.find(item => String(item.id) === String(savedId)) || chatConversations.value[0]
+      await openChatConversation(target)
+    } else {
+      chatHistory.value = [{ role: 'ai', text: 'Hi！我是 SmartDoc 智能伙伴，今天需要我帮你完成什么工作？' }]
+    }
     return
   }
 
@@ -799,28 +853,48 @@ const fetchChatDocuments = async () => {
   if (!userId) return
 
   chatDocumentsLoading.value = true
+  chatDocumentsError.value = ''
   try {
     const response = await docApi.getUserDocs(userId)
     const documents = response?.data || []
     chatDocuments.value = documents.map(doc => ({
       id: doc.id,
-      title: doc.title || '未命名文档'
+      title: doc.title || '未命名文档',
+      organizationId: doc.organizationId || '',
+      organizationName: doc.organizationName || '',
+      indexed: !['pending', 'failed'].includes(String(doc.indexStatus || doc.parseStatus || '').toLowerCase())
     }))
   } catch (error) {
     console.error('Failed to load chat documents', error)
+    chatDocumentsError.value = error?.userMessage || '文档列表暂时不可用，仍可进行普通对话。'
   } finally {
     chatDocumentsLoading.value = false
   }
 }
 
-const buildSelectedDocumentContext = async () => {
+const isProofreadingQuestion = (text) => /错别字|错字|别字|笔误|校对|拼写错误|typo|proofread/i.test(String(text || ''))
+
+const buildSelectedDocumentContext = async (question = '') => {
   if (!selectedChatDocumentIds.value.length) return { content: '', ids: [], titles: [], sources: [] }
 
   const selectedIds = [...selectedChatDocumentIds.value]
   const details = await Promise.all(selectedIds.map(async id => {
     try {
       const response = await docApi.getDocDetail(id)
-      return response?.data || response || {}
+      const detail = response?.data || response || {}
+      if (isProofreadingQuestion(question)) {
+        try {
+          const sourceResponse = await docApi.getOriginalSourceContent(id)
+          const sourceContent = sourceResponse?.data ?? sourceResponse
+          if (typeof sourceContent === 'string' && sourceContent.trim()) {
+            detail.content = sourceContent
+            detail.contentSource = 'original-upload'
+          }
+        } catch (error) {
+          console.warn('Failed to read original document source, using current content', error)
+        }
+      }
+      return detail
     } catch {
       return {}
     }
@@ -872,6 +946,24 @@ const mergeSources = (...groups) => {
 
 const openSourceDocument = source => {
   if (source?.documentId) router.push(`/editor/${source.documentId}`)
+}
+const copyAiMessage = async message => {
+  try {
+    await navigator.clipboard.writeText(message?.text || '')
+    ElMessage.success('回答已复制')
+  } catch {
+    ElMessage.warning('浏览器未允许复制，请手动选择文本')
+  }
+}
+const retryAiMessage = index => {
+  const previousQuestion = [...chatHistory.value.slice(0, index)].reverse().find(message => message.role === 'user')
+  if (!previousQuestion?.text || isAiThinking.value) return
+  userMsg.value = previousQuestion.text
+  handleSend()
+}
+const setAiFeedback = (message, value) => {
+  message.feedback = message.feedback === value ? '' : value
+  ElMessage.success(message.feedback ? '感谢反馈，已记录本次评价' : '已取消评价')
 }
 const handleSend = async () => {
   if (!userMsg.value.trim() || isAiThinking.value) return
@@ -926,7 +1018,7 @@ const handleSend = async () => {
     let chatDocumentSources = []
 
     if (isChatMode.value) {
-      const selectedContext = await buildSelectedDocumentContext()
+      const selectedContext = await buildSelectedDocumentContext(q)
       chatDocumentContext = selectedContext.content
       chatDocumentIds = selectedContext.ids
       chatDocumentSources = selectedContext.sources || []
@@ -955,6 +1047,8 @@ const handleSend = async () => {
       model: currentModel.value,
       conversationId: currentConvId.value || undefined,
       context: {
+        conversationChannel: isChatMode.value ? 'smartdoc-ai' : `document:${docId}`,
+        displayUserMessage: q,
         documentId: shouldSendCurrentDocumentId ? docId : (isChatMode.value ? chatDocumentIds[0] : undefined),
         frontendDocumentWrite: frontendWriteIntent,
         frontendDeleteConfirmed: frontendDeleteIntent,
@@ -975,7 +1069,8 @@ const handleSend = async () => {
     // 保存后端返回的 ConversationId，后续对话复用同一会话
     if (agentResult.conversationId) {
       currentConvId.value = agentResult.conversationId
-      sessionStorage.setItem('doc_conv_' + docId, agentResult.conversationId)
+      if (isChatMode.value) localStorage.setItem(`smartdoc_ai_current_conversation_${currentUserId.value || 'guest'}`, agentResult.conversationId)
+      else sessionStorage.setItem('doc_conv_' + docId, agentResult.conversationId)
     }
 
     isAiThinking.value = false
@@ -991,6 +1086,11 @@ const handleSend = async () => {
       toolCalls: agentResult.toolResults || [],
       sources: responseSources
     })
+    if (isChatMode.value) {
+      await fetchChatConversations(false)
+      const currentConversation = chatConversations.value.find(item => String(item.id) === String(currentConvId.value))
+      if (currentConversation?.title) chatTitle.value = currentConversation.title
+    }
 
     if (frontendDeleteIntent && hasDeletedCurrentDocument(agentResult.toolResults)) {
       ElMessage.success('文档已永久删除，即将返回工作台')
@@ -1002,19 +1102,10 @@ const handleSend = async () => {
   } catch (error) {
     console.error("AI 交互失败", error)
     isAiThinking.value = false
-
-    const lowerQ = q.toLowerCase()
-    let mockReply = "网络或模型未响应，这是本地兜底回复：建议在此处增加更多量化指标以提升专业度。"
-
-    if (lowerQ.includes('纠错') || lowerQ.includes('错别字')) {
-      mockReply = `【智能纠错】\n发现 1 处拼写错误：\n- ❌ "严尽" 应修改为 ✅ "严禁"。`
-    } else if (lowerQ.includes('润色')) {
-      mockReply = `【智能润色】建议修改为："为了杜绝安全隐患，严禁私拉乱接电线。"`
-    } else if (lowerQ.includes('总结') || lowerQ.includes('摘要')) {
-      mockReply = `【文档摘要】本文档强调了办公用电安全，要求离开时关闭电源，严禁私拉电线。`
-    }
-
-    chatHistory.value.push({ role: 'ai', text: mockReply })
+    const failureMessage = isProofreadingQuestion(q)
+      ? '文档校对未能完成，系统没有生成可靠的错别字清单。请重试；在校对成功前不会返回猜测数量。'
+      : (error?.userMessage || error?.message || 'AI 服务暂时不可用，请稍后重试。')
+    chatHistory.value.push({ role: 'ai', text: failureMessage, failed: true })
     scrollToBottom()
   }
 }
@@ -1637,7 +1728,13 @@ const decideSuggestion = async (suggestion, decision) => {
     ElMessage.success(decision === 'accepted' ? '建议已接受并写入正文' : '建议已拒绝')
   } catch (e) { if (e !== 'cancel' && e !== 'close') ElMessage.error(e?.message || '处理建议失败') }
 }
-const startNewChat = () => { chatHistory.value = []; chatTitle.value = '新对话' }
+const startNewChat = async () => {
+  currentConvId.value = ''
+  chatHistory.value = [{ role: 'ai', text: 'Hi！我是 SmartDoc 智能伙伴，今天需要我帮你完成什么工作？' }]
+  chatTitle.value = '新对话'
+  localStorage.removeItem(`smartdoc_ai_current_conversation_${currentUserId.value || 'guest'}`)
+  scrollToBottom()
+}
 const scrollToBottom = () => { nextTick(() => {
   const c = isChatMode.value ? document.querySelector('.chat-scroll-area') : document.querySelector('.chat-area'); if(c) c.scrollTop = c.scrollHeight
 }) }
@@ -1665,10 +1762,12 @@ const scrollToBottom = () => { nextTick(() => {
 /* ==================== 模式 A：飞书全局对话样式 ==================== */
 .feishu-chat-layout {
   height: 100vh;
+  height: 100dvh;
   width: 100vw;
   display: flex;
   background: #fff;
   overflow: hidden; /* 防止出现外层滚动条 */
+  min-height: 0;
 }
 
 /* 聊天侧边栏 (固定宽度，上下分布) */
@@ -1682,12 +1781,19 @@ const scrollToBottom = () => { nextTick(() => {
   justify-content: space-between;
 }
 .sidebar-top { padding: 24px 20px; }
-.brand-back { display: flex; align-items: center; gap: 8px; color: #5c5f66; font-size: 14px; cursor: pointer; margin-bottom: 30px; font-weight: 500;}
+.brand-back { width: 100%; display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: transparent; text-align: left; color: #5c5f66; font-size: 14px; cursor: pointer; margin-bottom: 30px; font-weight: 500;}
 .brand-back:hover { color: #3370ff; }
 .new-chat-btn { width: 100%; border-radius: 8px; margin-bottom: 30px; font-weight: 600; height: 36px; }
 .group-title { font-size: 12px; color: #8f959e; margin-bottom: 12px; padding-left: 4px; }
 .history-item { padding: 12px 16px; border-radius: 8px; display: flex; align-items: center; gap: 10px; font-size: 14px; background: #e1eaff; color: #3370ff; cursor: pointer; font-weight: 500; }
-.history-item .text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.history-group { max-height: calc(100vh - 190px); overflow-y: auto; padding-right: 3px; }
+.history-item { width: 100%; border: 0; text-align: left; margin-bottom: 6px; background: transparent; color: #6f6878; font-weight: 500; }
+.history-item:hover { background: #f3eff6; color: #74648d; }
+.history-item.active { background: #e8e0f0; color: #6d5c86; }
+.history-item .text { min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.history-delete { flex: 0 0 auto; opacity: 0; color: #a197a7; }
+.history-item:hover .history-delete { opacity: 1; }
+.history-loading { padding: 10px 4px; color: #9b93a1; font-size: 12px; }
 
 /* 侧边栏底部用户 */
 .sidebar-bottom { padding: 20px; border-top: 1px solid #ebeef5; }
@@ -1702,6 +1808,8 @@ const scrollToBottom = () => { nextTick(() => {
   position: relative;
   background: #fff;
   min-width: 0; /* 防止内容过长撑破 Flex 布局 */
+  min-height: 0; /* 允许内部聊天区收缩后产生滚动条 */
+  overflow: hidden;
 }
 .chat-header { height: 64px; display: flex; justify-content: center; border-bottom: 1px solid #f0f0f0; flex-shrink: 0;}
 .header-inner { width: 100%; max-width: 900px; display: flex; justify-content: space-between; align-items: center; padding: 0 24px; }
@@ -1710,8 +1818,13 @@ const scrollToBottom = () => { nextTick(() => {
 /* 聊天滚动区 */
 .chat-scroll-area {
   flex: 1;
+  min-height: 0; /* Flex 子项默认最小高度会阻断 overflow 滚动 */
   overflow-y: auto;
-  padding: 40px 0 160px 0; /* 底部留出巨大空间给输入框 */
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  /* 底部输入区在 Flex 布局中占位，不再覆盖最后一条消息。 */
+  padding: 40px 0 28px 0;
   display: flex;
   justify-content: center;
 }
@@ -1727,13 +1840,18 @@ const scrollToBottom = () => { nextTick(() => {
 .ai-card-content { font-size: 15px; color: #1f2329; line-height: 1.8; font-family: inherit; margin: 0; }
 .ai-structured-card.thinking { color: #8f959e; font-style: italic; display: flex; align-items: center; gap: 10px; padding: 16px 24px; }
 
-/* 底部居中悬浮输入框 */
+/* 底部输入区：作为 chat-main 的正常 Flex 子项，始终可见且不会遮挡消息。 */
 .chat-input-container {
-  position: absolute;
-  bottom: 0; left: 0; width: 100%;
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
+  width: 100%;
+  box-sizing: border-box;
   display: flex; flex-direction: column; align-items: center;
-  padding: 24px 0 32px 0;
-  background: linear-gradient(to top, #fff 80%, rgba(255,255,255,0));
+  padding: 12px 24px 18px;
+  border-top: 1px solid #e8e0e8;
+  background: #f7f6f3;
+  box-shadow: 0 -8px 20px rgba(70,59,80,.04);
 }
 .input-wrapper-inner {
   width: 100%; max-width: 800px; height: 60px; background: #fff; border-radius: 30px;
@@ -2024,7 +2142,7 @@ const scrollToBottom = () => { nextTick(() => {
 .user-bubble { background: #74698e; border-radius: 17px 5px 17px 17px; box-shadow: 0 6px 16px rgba(116,105,142,.2); }
 .ai-structured-card { border-color: #e6dee7; border-radius: 5px 17px 17px 17px; background: #fffdf9; color: #413b4b; box-shadow: 0 7px 20px rgba(70,59,80,.05); }
 .ai-structured-card:hover { border-color: #aca0ce; box-shadow: 0 9px 22px rgba(116,105,142,.1); }
-.chat-input-container { padding-bottom: 30px; background: linear-gradient(to top, #f7f6f3 78%, rgba(247,246,243,0)); }
+.chat-input-container { padding-bottom: 20px; }
 .input-wrapper-inner { max-width: 860px; height: 68px; padding: 0 12px 0 16px; border-color: #e4dce7; border-radius: 20px; box-shadow: 0 8px 24px rgba(70,59,80,.07); }
 .input-wrapper-inner.is-focused, .input-wrapper-inner.rag-active { border-color: #aca0ce; box-shadow: 0 9px 28px rgba(116,105,142,.14); }
 .chat-input { margin-left: 16px; color: #413b4b; }

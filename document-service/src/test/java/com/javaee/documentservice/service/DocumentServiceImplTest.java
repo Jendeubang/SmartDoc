@@ -3,6 +3,7 @@ package com.javaee.documentservice.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.javaee.documentservice.dto.DocumentCreateDTO;
 import com.javaee.documentservice.dto.DocumentUpdateDTO;
+import com.javaee.documentservice.client.FileServiceClient;
 import com.javaee.documentservice.entity.Document;
 import com.javaee.documentservice.mapper.DocumentMapper;
 import com.javaee.documentservice.mapper.DocumentVersionMapper;
@@ -11,6 +12,7 @@ import com.javaee.documentservice.vo.DocumentVO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
@@ -32,6 +34,7 @@ class DocumentServiceImplTest {
     private DocumentAccessService documentAccessService;
     private EnterprisePermissionService enterprisePermissionService;
     private EnterpriseAuditService enterpriseAuditService;
+    private FileServiceClient fileServiceClient;
     private DocumentServiceImpl documentService;
 
     @BeforeEach
@@ -42,6 +45,7 @@ class DocumentServiceImplTest {
         documentAccessService = mock(DocumentAccessService.class);
         enterprisePermissionService = mock(EnterprisePermissionService.class);
         enterpriseAuditService = mock(EnterpriseAuditService.class);
+        fileServiceClient = mock(FileServiceClient.class);
         documentService = new DocumentServiceImpl();
         ReflectionTestUtils.setField(documentService, "documentMapper", documentMapper);
         ReflectionTestUtils.setField(documentService, "documentVersionMapper", documentVersionMapper);
@@ -49,6 +53,7 @@ class DocumentServiceImplTest {
         ReflectionTestUtils.setField(documentService, "documentAccessService", documentAccessService);
         ReflectionTestUtils.setField(documentService, "enterprisePermissionService", enterprisePermissionService);
         ReflectionTestUtils.setField(documentService, "enterpriseAuditService", enterpriseAuditService);
+        ReflectionTestUtils.setField(documentService, "fileServiceClient", fileServiceClient);
         ReflectionTestUtils.setField(documentService, "objectMapper", new ObjectMapper());
     }
 
@@ -123,6 +128,24 @@ class DocumentServiceImplTest {
         verify(enterpriseAuditService).record(null, 2L, "DOCUMENT_UPDATE", "document", "doc-4", null);
         assertThat(document.getTitle()).isEqualTo("doc");
         assertThat(vo.getContent()).isEqualTo("");
+    }
+
+    @Test
+    void proofreadingSourceReadsOriginalUploadWithoutOverwritingCurrentContent() {
+        Document document = document("doc-5", 1L, "user-1", "document-content/file-5.txt");
+        document.setFileId("file-5");
+        when(documentMapper.selectById("doc-5")).thenReturn(document);
+        when(fileServiceClient.getFileName("file-5")).thenReturn(ResponseEntity.ok("错别字.txt"));
+        when(fileServiceClient.downloadFile("file-5"))
+                .thenReturn(ResponseEntity.ok("人工只能技术".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+        String content = documentService.getOriginalSourceContent("doc-5", 2L);
+
+        assertThat(content).isEqualTo("人工只能技术");
+        verify(documentAccessService).assertCanRead(document, 2L);
+        verify(documentContentService, org.mockito.Mockito.never())
+                .saveContentByKey(any(), any(), any());
+        verify(documentMapper, org.mockito.Mockito.never()).updateById(any(Document.class));
     }
 
     private Document document(String id, Long userId, String bucketName, String objectName) {

@@ -23,6 +23,7 @@ public class AsyncAIJobMessage implements Serializable {
     private String type;
     private String model;
     private String userId;
+    private String organizationId;
     private Long createdAt;
     private Map<String, Object> payload = new HashMap<>();
 }

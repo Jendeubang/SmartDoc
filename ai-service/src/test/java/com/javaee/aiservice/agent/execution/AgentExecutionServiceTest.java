@@ -1,6 +1,7 @@
 package com.javaee.aiservice.agent.execution;
 
 import com.javaee.aiservice.agent.ChatService;
+import com.javaee.aiservice.agent.KnowledgeIndexAgent;
 import com.javaee.aiservice.agent.execution.approval.AgentApprovalService;
 import com.javaee.aiservice.agent.execution.model.AgentExecutionRequest;
 import com.javaee.aiservice.agent.execution.model.AgentPlanStep;
@@ -12,6 +13,7 @@ import com.javaee.aiservice.agent.execution.task.AgentTaskRegistry;
 import com.javaee.aiservice.agent.execution.tool.AgentToolDefinition;
 import com.javaee.aiservice.agent.execution.tool.AgentToolParameterDefinition;
 import com.javaee.aiservice.agent.execution.tool.AgentToolRegistry;
+import com.javaee.aiservice.client.DocumentServiceClient;
 import com.javaee.aiservice.conversation.ContextManager;
 import com.javaee.aiservice.conversation.ConversationManager;
 import com.javaee.aiservice.dto.FileDeleteDTO;
@@ -34,6 +36,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doNothing;
@@ -73,6 +76,167 @@ class AgentExecutionServiceTest {
         assertThat(textToFile).isNotNull();
         assertThat(textToFile.getParameterSchema().get("objectName").isRequired()).isFalse();
         assertThat(textToFile.getParameterSchema().get("content").isRequired()).isTrue();
+        assertThat(registry.get("document-catalog")).isNotNull();
+        assertThat(registry.get("document-catalog").getDescription()).contains("实时", "数量");
+    }
+
+    @Test
+    void documentCountQuestionAlwaysUsesLiveCatalogInsteadOfRagPlanner() {
+        AgentExecutionService service = new AgentExecutionService();
+        ReflectionTestUtils.setField(service, "toolRegistry", new AgentToolRegistry());
+        AgentExecutionRequest request = new AgentExecutionRequest();
+        request.setTask("我一共有几个文件");
+        request.setKnowledgeBaseId("default");
+
+        @SuppressWarnings("unchecked")
+        List<AgentPlanStep> plan = ReflectionTestUtils.invokeMethod(service, "buildPlan", request, Map.of());
+
+        assertThat(plan).hasSize(1);
+        assertThat(plan.get(0).getToolName()).isEqualTo("document-catalog");
+        assertThat(plan.get(0).getParams()).containsEntry("question", "我一共有几个文件");
+    }
+
+    @Test
+    void selectedDocumentTypoQuestionAlwaysUsesDedicatedProofreaderWithExactContent() {
+        AgentExecutionService service = new AgentExecutionService();
+        ReflectionTestUtils.setField(service, "toolRegistry", new AgentToolRegistry());
+        AgentExecutionRequest request = new AgentExecutionRequest();
+        request.setTask("【文档内容】人工只能技术【用户问题】这里有多少个错别字");
+        request.setModel("deepseek-chat");
+        Map<String, Object> context = new HashMap<>();
+        context.put("displayUserMessage", "这里有多少个错别字");
+        context.put("documentContent", "人工只能技术");
+        context.put("selectedDocumentIds", List.of("doc-1"));
+
+        @SuppressWarnings("unchecked")
+        List<AgentPlanStep> plan = ReflectionTestUtils.invokeMethod(service, "buildPlan", request, context);
+
+        assertThat(plan).hasSize(1);
+        assertThat(plan.get(0).getToolName()).isEqualTo("document-proofread");
+        assertThat(plan.get(0).getParams())
+                .containsEntry("content", "人工只能技术")
+                .containsEntry("question", "这里有多少个错别字");
+    }
+
+    @Test
+    void proofreaderComputesCountFromIssueListInsteadOfTrustingModelCount() {
+        AgentExecutionService service = new AgentExecutionService();
+        ChatService chatService = mock(ChatService.class);
+        ReflectionTestUtils.setField(service, "chatService", chatService);
+        ReflectionTestUtils.setField(service, "objectMapper", new com.fasterxml.jackson.databind.ObjectMapper());
+        when(chatService.callChatApiWithModelCode(any(), eq("deepseek-chat"))).thenReturn("""
+                {"count":99,"issues":[
+                  {"wrong":"数子化","correct":"数字化","context":"在当今数子化时代","reason":"同音误写"},
+                  {"wrong":"人工只能","correct":"人工智能","context":"人工只能技术","reason":"同音误写"}
+                ]}
+                """);
+
+        AgentToolResult result = ReflectionTestUtils.invokeMethod(service, "executeDocumentProofread",
+                Map.of("content", "在当今数子化时代，人工只能技术。", "question", "有多少错别字", "model", "deepseek-chat"));
+
+        assertThat(result).isNotNull();
+        assertThat(result.getData()).containsEntry("count", 2);
+        assertThat(result.getData().get("answer").toString())
+                .contains("共检测到 2 处明确错别字", "“数子化”应为“数字化”", "“人工只能”应为“人工智能”");
+    }
+
+    @Test
+    void allDocumentsSummaryAlwaysUsesRagInsteadOfSummarizingTheInstructionText() {
+        AgentExecutionService service = new AgentExecutionService();
+        ReflectionTestUtils.setField(service, "toolRegistry", new AgentToolRegistry());
+        AgentExecutionRequest request = new AgentExecutionRequest();
+        request.setTask("基于我所有文档总结全部内容");
+        request.setKnowledgeBaseId("default");
+
+        @SuppressWarnings("unchecked")
+        List<AgentPlanStep> plan = ReflectionTestUtils.invokeMethod(service, "buildPlan", request, Map.of());
+
+        assertThat(plan).hasSize(1);
+        assertThat(plan.get(0).getToolName()).isEqualTo("rag-answer");
+        assertThat(plan.get(0).getParams()).containsEntry("question", "基于我所有文档总结全部内容");
+    }
+
+    @Test
+    void documentCatalogReturnsExactAccessibleAndIndexedCountsWithoutLlmInference() {
+        AgentExecutionService service = new AgentExecutionService();
+        DocumentServiceClient documents = mock(DocumentServiceClient.class);
+        PermissionAwareRagService permissionAwareRag = mock(PermissionAwareRagService.class);
+        when(documents.getAccessibleDocuments()).thenReturn(List.of(
+                Map.of("id", "doc-1", "title", "项目方案"),
+                Map.of("id", "doc-2", "title", "会议纪要"),
+                Map.of("id", "doc-3", "title", "需求文档")));
+        when(permissionAwareRag.accessibleIndexedDocumentIds("default")).thenReturn(List.of("doc-1"));
+        ReflectionTestUtils.setField(service, "documentServiceClient", documents);
+        ReflectionTestUtils.setField(service, "permissionAwareRag", permissionAwareRag);
+
+        AgentToolResult result = ReflectionTestUtils.invokeMethod(service, "executeDocumentCatalog",
+                Map.of("question", "我有多少文件", "knowledgeBaseId", "default"));
+
+        assertThat(result).isNotNull();
+        assertThat(result.getData()).containsEntry("documentCount", 3)
+                .containsEntry("indexedDocumentCount", 1)
+                .containsEntry("unindexedDocumentCount", 2);
+        assertThat(result.getData().get("answer").toString())
+                .contains("共有 3 个可访问文档", "1 个已完成知识库索引", "项目方案", "需求文档");
+    }
+
+    @Test
+    void emptyRagResultReportsIndexCoverageAndDoesNotInventContent() {
+        AgentExecutionService service = new AgentExecutionService();
+        DocumentServiceClient documents = mock(DocumentServiceClient.class);
+        PermissionAwareRagService permissionAwareRag = mock(PermissionAwareRagService.class);
+        when(documents.getAccessibleDocuments()).thenReturn(List.of(
+                Map.of("id", "doc-1", "title", "项目方案"),
+                Map.of("id", "doc-2", "title", "会议纪要")));
+        when(permissionAwareRag.accessibleIndexedDocumentIds("default")).thenReturn(List.of("doc-1"));
+        when(permissionAwareRag.hybridSearchWithRerank(any(), anyInt(), eq("default"),
+                any(Reranker.RerankStrategy.class), eq(DocumentSegmenter.StrategyType.CHAPTER)))
+                .thenReturn(List.of());
+        ReflectionTestUtils.setField(service, "documentServiceClient", documents);
+        ReflectionTestUtils.setField(service, "permissionAwareRag", permissionAwareRag);
+
+        AgentToolResult result = ReflectionTestUtils.invokeMethod(service, "executeRagAnswer",
+                Map.of("question", "不存在的业务事实", "knowledgeBaseId", "default"), "deepseek-chat");
+
+        assertThat(result).isNotNull();
+        assertThat(result.getData()).containsEntry("documentCount", 2)
+                .containsEntry("indexedDocumentCount", 1);
+        assertThat(result.getData().get("answer").toString())
+                .contains("共有 2 个可访问文档", "没有检索到与问题相关的内容");
+    }
+
+    @Test
+    void allDocumentsQuestionQueuesMissingIndexesAndRefusesPartialAnswer() {
+        AgentExecutionService service = new AgentExecutionService();
+        DocumentServiceClient documents = mock(DocumentServiceClient.class);
+        PermissionAwareRagService permissionAwareRag = mock(PermissionAwareRagService.class);
+        KnowledgeIndexAgent knowledgeIndexAgent = mock(KnowledgeIndexAgent.class);
+        RequestUserContext requestUserContext = mock(RequestUserContext.class);
+        when(requestUserContext.getRequiredUserId()).thenReturn("user-1");
+        when(documents.getAccessibleDocuments()).thenReturn(List.of(
+                Map.of("id", "doc-1", "title", "已索引文档"),
+                Map.of("id", "doc-2", "title", "待索引文档")));
+        when(documents.getDocument("doc-2")).thenReturn(Map.of(
+                "id", "doc-2", "title", "待索引文档", "content", "这是待索引的正文内容。"));
+        when(permissionAwareRag.accessibleIndexedDocumentIds("default")).thenReturn(List.of("doc-1"));
+        when(knowledgeIndexAgent.indexDocumentAsyncIfNeeded(eq("doc-2"), any(), any()))
+                .thenReturn(Map.of("jobId", "job-2", "status", "PENDING", "documentId", "doc-2"));
+        ReflectionTestUtils.setField(service, "documentServiceClient", documents);
+        ReflectionTestUtils.setField(service, "permissionAwareRag", permissionAwareRag);
+        ReflectionTestUtils.setField(service, "knowledgeIndexAgent", knowledgeIndexAgent);
+        ReflectionTestUtils.setField(service, "requestUserContext", requestUserContext);
+
+        AgentToolResult result = ReflectionTestUtils.invokeMethod(service, "executeRagAnswer",
+                Map.of("question", "总结我所有文档的全部内容", "knowledgeBaseId", "default"), "deepseek-chat");
+
+        assertThat(result).isNotNull();
+        assertThat(result.getData()).containsEntry("indexing", true)
+                .containsEntry("documentCount", 2)
+                .containsEntry("indexedDocumentCount", 1);
+        assertThat(result.getData().get("answer").toString())
+                .contains("已自动为 1 个未索引文档创建后台索引任务", "本次暂不作答");
+        verify(knowledgeIndexAgent).indexDocumentAsyncIfNeeded(eq("doc-2"),
+                eq("这是待索引的正文内容。"), any());
     }
 
     @Test

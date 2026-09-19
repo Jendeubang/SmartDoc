@@ -1,0 +1,792 @@
+/*
+ * SmartDoc 莫兰迪鼠尾草绿主题
+ *
+ * 原紫色主题完整保留在 morandi-theme.css 中。本文件仅在
+ * html[data-smartdoc-theme="sage"] 下覆盖视觉样式，因此不修改布局和业务逻辑。
+ */
+
+html[data-smartdoc-theme="sage"] {
+  --sd-primary: #7d9283;
+  --sd-primary-hover: #6d8173;
+  --sd-primary-active: #5f7165;
+  --sd-primary-soft: #dde6df;
+  --sd-primary-lighter: #dfe8e1;
+  --sd-primary-subtle: #f1f5f1;
+  --sd-page: #e8eee9;
+  --sd-surface: #fffdf9;
+  --sd-surface-muted: #f5f6f2;
+  --sd-border: #e1e5df;
+  --sd-border-strong: #ccd6cf;
+  --sd-text: #424a45;
+  --sd-text-secondary: #707971;
+  --sd-text-muted: #9ca39d;
+  --sd-accent: #c5a96d;
+  --sd-success: #6f8a75;
+  --sd-warning: #b5945f;
+  --sd-danger: #a87373;
+  --sd-shadow: 0 14px 36px rgba(76, 94, 82, 0.09);
+
+  --sd-bg: var(--sd-page);
+  --sd-pink: var(--sd-primary-soft);
+  --sd-lavender: #9caf9f;
+  --sd-lavender-deep: var(--sd-primary);
+
+  --el-color-primary: var(--sd-primary);
+  --el-color-primary-light-3: #9cad9f;
+  --el-color-primary-light-5: #b9c6bc;
+  --el-color-primary-light-7: #d5ddd7;
+  --el-color-primary-light-8: #e3e9e4;
+  --el-color-primary-light-9: #f0f3f0;
+  --el-color-primary-dark-2: var(--sd-primary-active);
+  --el-color-success: var(--sd-success);
+  --el-color-warning: var(--sd-warning);
+  --el-color-danger: var(--sd-danger);
+  --el-bg-color: var(--sd-surface);
+  --el-bg-color-page: var(--sd-page);
+  --el-fill-color: #eff2ee;
+  --el-fill-color-light: #f4f6f3;
+  --el-fill-color-lighter: #f8f9f7;
+  --el-fill-color-blank: var(--sd-surface);
+  --el-border-color: var(--sd-border);
+  --el-border-color-light: #e8ebe6;
+  --el-border-color-lighter: #eef0ec;
+  --el-text-color-primary: var(--sd-text);
+  --el-text-color-regular: var(--sd-text-secondary);
+  --el-text-color-secondary: var(--sd-text-muted);
+}
+
+html[data-smartdoc-theme="sage"],
+html[data-smartdoc-theme="sage"] body,
+html[data-smartdoc-theme="sage"] #app {
+  background: var(--sd-page) !important;
+  color: var(--sd-text) !important;
+}
+
+/* Element Plus：统一交互色 */
+html[data-smartdoc-theme="sage"] .el-button--primary {
+  --el-button-bg-color: var(--sd-primary);
+  --el-button-border-color: var(--sd-primary);
+  --el-button-hover-bg-color: var(--sd-primary-hover);
+  --el-button-hover-border-color: var(--sd-primary-hover);
+  --el-button-active-bg-color: var(--sd-primary-active);
+  --el-button-active-border-color: var(--sd-primary-active);
+}
+
+html[data-smartdoc-theme="sage"] .el-button.is-plain:hover,
+html[data-smartdoc-theme="sage"] .el-button.is-text:hover {
+  color: var(--sd-primary-hover);
+  border-color: var(--sd-border-strong);
+  background: var(--sd-primary-lighter);
+}
+
+html[data-smartdoc-theme="sage"] .el-input__wrapper.is-focus,
+html[data-smartdoc-theme="sage"] .el-select__wrapper.is-focused,
+html[data-smartdoc-theme="sage"] .el-textarea__inner:focus {
+  box-shadow: 0 0 0 1px var(--sd-primary) inset !important;
+}
+
+html[data-smartdoc-theme="sage"] .el-card,
+html[data-smartdoc-theme="sage"] .el-dialog,
+html[data-smartdoc-theme="sage"] .el-drawer,
+html[data-smartdoc-theme="sage"] .el-popover,
+html[data-smartdoc-theme="sage"] .el-dropdown-menu {
+  --el-bg-color: var(--sd-surface);
+  --el-border-color-light: var(--sd-border);
+}
+
+html[data-smartdoc-theme="sage"] .el-tabs__item.is-active,
+html[data-smartdoc-theme="sage"] .el-dropdown-menu__item:not(.is-disabled):focus,
+html[data-smartdoc-theme="sage"] .el-dropdown-menu__item:not(.is-disabled):hover {
+  color: var(--sd-primary) !important;
+  background: var(--sd-primary-lighter) !important;
+}
+
+html[data-smartdoc-theme="sage"] .el-tabs__active-bar,
+html[data-smartdoc-theme="sage"] .el-radio__input.is-checked .el-radio__inner,
+html[data-smartdoc-theme="sage"] .el-checkbox__input.is-checked .el-checkbox__inner {
+  border-color: var(--sd-primary) !important;
+  background: var(--sd-primary) !important;
+}
+
+html[data-smartdoc-theme="sage"] .el-radio__input.is-checked + .el-radio__label,
+html[data-smartdoc-theme="sage"] .el-checkbox__input.is-checked + .el-checkbox__label {
+  color: var(--sd-primary-active) !important;
+}
+
+/* 工作台 */
+html[data-smartdoc-theme="sage"] .feishu-layout,
+html[data-smartdoc-theme="sage"] .feishu-layout .feishu-main {
+  background: var(--sd-page) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-layout .feishu-aside {
+  background: rgba(255, 253, 249, 0.91) !important;
+  border-right-color: var(--sd-border) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-layout .logo-box {
+  background: var(--sd-primary) !important;
+  box-shadow: 0 8px 18px rgba(93, 117, 101, 0.22) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-layout .brand,
+html[data-smartdoc-theme="sage"] .feishu-layout .nav-item:hover,
+html[data-smartdoc-theme="sage"] .feishu-layout .nav-item.active {
+  color: var(--sd-primary-active) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-layout .nav-item:hover,
+html[data-smartdoc-theme="sage"] .feishu-layout .user-profile:hover {
+  background: #f0f3ef !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-layout .nav-item.active {
+  background: var(--sd-primary-lighter) !important;
+  box-shadow: inset 3px 0 0 var(--sd-primary);
+}
+
+html[data-smartdoc-theme="sage"] .feishu-layout .nav-item.aiops-nav {
+  color: #927a50 !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-layout .ai-hero {
+  border-color: var(--sd-border) !important;
+  background: rgba(255, 253, 249, 0.82) !important;
+  box-shadow: var(--sd-shadow) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-layout .hero-search:focus-within {
+  border-color: var(--sd-primary) !important;
+  box-shadow: 0 0 0 4px rgba(125, 146, 131, 0.14) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-layout .send-action-btn {
+  background: var(--sd-primary) !important;
+  box-shadow: 0 6px 14px rgba(95, 113, 101, 0.25) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-layout .send-action-btn:hover {
+  background: var(--sd-primary-hover) !important;
+  box-shadow: 0 0 0 4px rgba(125, 146, 131, 0.18), 0 7px 16px rgba(95, 113, 101, 0.24) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-layout .prompt-pill:hover,
+html[data-smartdoc-theme="sage"] .feishu-layout .category-board.active,
+html[data-smartdoc-theme="sage"] .feishu-layout .library-filter.active {
+  color: var(--sd-primary-active) !important;
+  border-color: var(--sd-primary) !important;
+  background: var(--sd-primary-lighter) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-layout .doc-card,
+html[data-smartdoc-theme="sage"] .feishu-layout .stat-card {
+  border-color: var(--sd-border) !important;
+  background: rgba(255, 253, 249, 0.94) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-layout .doc-card:hover {
+  border-color: var(--sd-border-strong) !important;
+  box-shadow: var(--sd-shadow) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-layout .bg-blue { background: #91a79a !important; }
+html[data-smartdoc-theme="sage"] .feishu-layout .bg-orange { background: #c6ad7d !important; }
+html[data-smartdoc-theme="sage"] .feishu-layout .bg-green { background: #a9bcae !important; }
+html[data-smartdoc-theme="sage"] .feishu-layout .bg-purple { background: #879b8e !important; }
+html[data-smartdoc-theme="sage"] .feishu-layout .favorite-mark,
+html[data-smartdoc-theme="sage"] .feishu-layout .favorite-icon,
+html[data-smartdoc-theme="sage"] .feishu-layout .doc-favorite-badge { color: var(--sd-accent) !important; }
+
+/* SmartDoc AI 对话与编辑器 */
+html[data-smartdoc-theme="sage"] .feishu-chat-layout,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .chat-main {
+  background: var(--sd-page) !important;
+  color: var(--sd-text) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .chat-header,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .editor-header,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .editor-sidebar {
+  border-color: var(--sd-border) !important;
+  background: rgba(255, 253, 249, 0.94) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .user-bubble,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .send-btn-circle.active,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .rag-mode-toggle.active {
+  border-color: var(--sd-primary) !important;
+  background: var(--sd-primary) !important;
+  box-shadow: 0 6px 16px rgba(95, 113, 101, 0.18) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .ai-structured-card,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .input-wrapper-inner,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .chat-document-select .el-select__wrapper {
+  border-color: var(--sd-border) !important;
+  background: var(--sd-surface) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .input-wrapper-inner.is-focused,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .input-wrapper-inner.rag-active,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .ai-structured-card:hover {
+  border-color: var(--sd-primary) !important;
+  box-shadow: 0 8px 24px rgba(95, 113, 101, 0.12) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .rag-mode-toggle,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .chat-attach-btn,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .chat-context-label {
+  color: var(--sd-primary-active) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .rag-mode-toggle,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .chat-attach-btn {
+  border-color: var(--sd-border-strong) !important;
+  background: var(--sd-primary-subtle) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .rag-mode-toggle:hover,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .chat-attach-btn:hover {
+  border-color: var(--sd-primary) !important;
+  background: var(--sd-primary-lighter) !important;
+}
+
+/* 全局 AI 助理（Drawer 会挂载到 body） */
+html[data-smartdoc-theme="sage"] .global-ai-fab,
+html[data-smartdoc-theme="sage"] .global-ai-drawer .ai-icon-wrapper,
+html[data-smartdoc-theme="sage"] .global-ai-drawer .ai-avatar,
+html[data-smartdoc-theme="sage"] .global-ai-drawer .user-bubble,
+html[data-smartdoc-theme="sage"] .global-ai-drawer .send-btn.active {
+  background: var(--sd-primary) !important;
+  box-shadow: 0 4px 14px rgba(95, 113, 101, 0.24) !important;
+}
+
+html[data-smartdoc-theme="sage"] .global-ai-fab:hover,
+html[data-smartdoc-theme="sage"] .global-ai-drawer .send-btn.active:hover {
+  background: var(--sd-primary-hover) !important;
+}
+
+html[data-smartdoc-theme="sage"] .global-ai-drawer .chat-layout,
+html[data-smartdoc-theme="sage"] .global-ai-drawer .input-wrapper {
+  background: var(--sd-primary-subtle) !important;
+}
+
+html[data-smartdoc-theme="sage"] .global-ai-drawer .drawer-header,
+html[data-smartdoc-theme="sage"] .global-ai-drawer .input-area,
+html[data-smartdoc-theme="sage"] .global-ai-drawer .ai-bubble,
+html[data-smartdoc-theme="sage"] .global-ai-drawer .agent-file-card {
+  border-color: var(--sd-border) !important;
+  background: var(--sd-surface) !important;
+}
+
+html[data-smartdoc-theme="sage"] .global-ai-drawer .input-wrapper.is-focused,
+html[data-smartdoc-theme="sage"] .global-ai-drawer .agent-file-card:hover {
+  border-color: var(--sd-primary) !important;
+  background: var(--sd-surface) !important;
+  box-shadow: 0 0 0 3px rgba(125, 146, 131, 0.12) !important;
+}
+
+/* 文档处理工具箱 */
+html[data-smartdoc-theme="sage"] .toolbox-page,
+html[data-smartdoc-theme="sage"] .quiz-page,
+html[data-smartdoc-theme="sage"] .profile-page,
+html[data-smartdoc-theme="sage"] .enterprise-page,
+html[data-smartdoc-theme="sage"] .agent-workbench,
+html[data-smartdoc-theme="sage"] .aiops-container {
+  background: var(--sd-page) !important;
+  color: var(--sd-text) !important;
+}
+
+html[data-smartdoc-theme="sage"] .toolbox-page .title-mark,
+html[data-smartdoc-theme="sage"] .quiz-page .title-mark,
+html[data-smartdoc-theme="sage"] .enterprise-page .brand-icon,
+html[data-smartdoc-theme="sage"] .profile-page .profile-avatar {
+  background: var(--sd-primary) !important;
+  color: #fff !important;
+  box-shadow: 0 8px 20px rgba(95, 113, 101, 0.22) !important;
+}
+
+html[data-smartdoc-theme="sage"] .toolbox-page .toolbox-hero {
+  background: linear-gradient(120deg, #dce7de 0%, #edf2ee 54%, #d6e1d9 100%) !important;
+}
+
+html[data-smartdoc-theme="sage"] .toolbox-page .eyebrow,
+html[data-smartdoc-theme="sage"] .toolbox-page .pane-kicker,
+html[data-smartdoc-theme="sage"] .toolbox-page .hero-stats strong,
+html[data-smartdoc-theme="sage"] .toolbox-page .scope-card .el-icon,
+html[data-smartdoc-theme="sage"] .toolbox-page .capability-note .el-icon {
+  color: var(--sd-primary-active) !important;
+}
+
+html[data-smartdoc-theme="sage"] .toolbox-page .document-pane,
+html[data-smartdoc-theme="sage"] .toolbox-page .tools-pane,
+html[data-smartdoc-theme="sage"] .toolbox-page .operation-pane,
+html[data-smartdoc-theme="sage"] .toolbox-page .advanced-workspace,
+html[data-smartdoc-theme="sage"] .toolbox-page .advanced-card,
+html[data-smartdoc-theme="sage"] .toolbox-page .task-center,
+html[data-smartdoc-theme="sage"] .toolbox-page .task-item {
+  border-color: var(--sd-border) !important;
+  background: var(--sd-surface) !important;
+  box-shadow: var(--sd-shadow) !important;
+}
+
+html[data-smartdoc-theme="sage"] .toolbox-page .tool-card:hover,
+html[data-smartdoc-theme="sage"] .toolbox-page .tool-card.active {
+  border-color: var(--sd-primary) !important;
+  background: var(--sd-primary-subtle) !important;
+  box-shadow: 0 6px 16px rgba(95, 113, 101, 0.11) !important;
+}
+
+html[data-smartdoc-theme="sage"] .toolbox-page .tool-card.active::after,
+html[data-smartdoc-theme="sage"] .toolbox-page .run-button,
+html[data-smartdoc-theme="sage"] .toolbox-page .preset-group .el-radio-button__original-radio:checked + .el-radio-button__inner {
+  border-color: var(--sd-primary) !important;
+  background: var(--sd-primary) !important;
+}
+
+html[data-smartdoc-theme="sage"] .toolbox-page .tool-icon {
+  color: var(--sd-primary-active) !important;
+  background: var(--sd-primary-soft) !important;
+}
+
+html[data-smartdoc-theme="sage"] .toolbox-page .group-label span {
+  background: var(--sd-primary) !important;
+}
+
+html[data-smartdoc-theme="sage"] .toolbox-page .run-button:hover {
+  border-color: var(--sd-primary-hover) !important;
+  background: var(--sd-primary-hover) !important;
+}
+
+html[data-smartdoc-theme="sage"] .toolbox-page .setting-block,
+html[data-smartdoc-theme="sage"] .toolbox-page .doc-preview,
+html[data-smartdoc-theme="sage"] .toolbox-page .knowledge-status,
+html[data-smartdoc-theme="sage"] .toolbox-page .capability-note {
+  border-color: var(--sd-border) !important;
+  background: var(--sd-primary-subtle) !important;
+}
+
+/* 企业空间 */
+html[data-smartdoc-theme="sage"] .enterprise-page .enterprise-sidebar {
+  border-right-color: var(--sd-border) !important;
+  background: #e9eee9 !important;
+}
+
+html[data-smartdoc-theme="sage"] .enterprise-page .org-item.active,
+html[data-smartdoc-theme="sage"] .enterprise-page .enterprise-tabs,
+html[data-smartdoc-theme="sage"] .enterprise-page .metric-card,
+html[data-smartdoc-theme="sage"] .enterprise-page .analytics-card,
+html[data-smartdoc-theme="sage"] .enterprise-page .split-panels .content-panel {
+  border-color: var(--sd-border) !important;
+  background: var(--sd-surface) !important;
+}
+
+html[data-smartdoc-theme="sage"] .enterprise-page .metric-card.accent,
+html[data-smartdoc-theme="sage"] .enterprise-page .folder-card.selected,
+html[data-smartdoc-theme="sage"] .enterprise-page .analytics-summary > div,
+html[data-smartdoc-theme="sage"] .enterprise-page .table-head {
+  border-color: var(--sd-border-strong) !important;
+  background: var(--sd-primary-lighter) !important;
+}
+
+html[data-smartdoc-theme="sage"] .enterprise-page .folder-card > .el-icon,
+html[data-smartdoc-theme="sage"] .enterprise-page .document-link,
+html[data-smartdoc-theme="sage"] .enterprise-page .notification-item.unread .notice-dot {
+  color: var(--sd-primary-active) !important;
+}
+
+html[data-smartdoc-theme="sage"] .enterprise-page .notification-item.unread .notice-dot,
+html[data-smartdoc-theme="sage"] .enterprise-page .bar-row i,
+html[data-smartdoc-theme="sage"] .enterprise-page .document-bar,
+html[data-smartdoc-theme="sage"] .enterprise-page .doc-dot {
+  background: var(--sd-primary) !important;
+}
+
+html[data-smartdoc-theme="sage"] .enterprise-page .activity-bar,
+html[data-smartdoc-theme="sage"] .enterprise-page .activity-dot {
+  background: var(--sd-accent) !important;
+}
+
+/* 练题 */
+html[data-smartdoc-theme="sage"] .quiz-page .set-sidebar,
+html[data-smartdoc-theme="sage"] .quiz-page .builder-card,
+html[data-smartdoc-theme="sage"] .quiz-page .practice-card,
+html[data-smartdoc-theme="sage"] .quiz-page .question-card {
+  border-color: var(--sd-border) !important;
+  background: var(--sd-surface) !important;
+  box-shadow: var(--sd-shadow) !important;
+}
+
+html[data-smartdoc-theme="sage"] .quiz-page .saved-set:hover,
+html[data-smartdoc-theme="sage"] .quiz-page .saved-set.active,
+html[data-smartdoc-theme="sage"] .quiz-page .type-summary button.active,
+html[data-smartdoc-theme="sage"] .quiz-page .practice-filters {
+  border-color: var(--sd-border-strong) !important;
+  background: var(--sd-primary-lighter) !important;
+  color: var(--sd-primary-active) !important;
+}
+
+html[data-smartdoc-theme="sage"] .quiz-page .set-icon,
+html[data-smartdoc-theme="sage"] .quiz-page .type-badge,
+html[data-smartdoc-theme="sage"] .quiz-page .eyebrow {
+  background: var(--sd-primary-soft) !important;
+  color: var(--sd-primary-active) !important;
+}
+
+html[data-smartdoc-theme="sage"] .quiz-page .question-nav button.active {
+  border-color: var(--sd-primary) !important;
+  background: var(--sd-primary) !important;
+}
+
+html[data-smartdoc-theme="sage"] .quiz-page .favorite-button.active {
+  color: var(--sd-accent) !important;
+}
+
+/* 登录、注册、重置密码和个人资料 */
+html[data-smartdoc-theme="sage"] .auth-bg,
+html[data-smartdoc-theme="sage"] .reset-page {
+  background: radial-gradient(circle at 82% 5%, #e4ece5 0, transparent 32%), var(--sd-page) !important;
+}
+
+html[data-smartdoc-theme="sage"] .auth-bg .auth-card,
+html[data-smartdoc-theme="sage"] .reset-page .reset-card,
+html[data-smartdoc-theme="sage"] .profile-page .profile-card {
+  border-color: var(--sd-border) !important;
+  background: rgba(255, 253, 249, 0.96) !important;
+  box-shadow: var(--sd-shadow) !important;
+}
+
+html[data-smartdoc-theme="sage"] .auth-bg .logo,
+html[data-smartdoc-theme="sage"] .auth-bg .text-button,
+html[data-smartdoc-theme="sage"] .auth-bg .footer-text a,
+html[data-smartdoc-theme="sage"] .reset-page a,
+html[data-smartdoc-theme="sage"] .profile-page .back-button,
+html[data-smartdoc-theme="sage"] .profile-page .eyebrow,
+html[data-smartdoc-theme="sage"] .profile-page .avatar-button {
+  color: var(--sd-primary-active) !important;
+}
+
+html[data-smartdoc-theme="sage"] .profile-page {
+  background: radial-gradient(circle at 90% 0%, #e5ece6 0, transparent 31%), var(--sd-page) !important;
+}
+
+html[data-smartdoc-theme="sage"] .profile-page .profile-header {
+  border-bottom-color: var(--sd-border) !important;
+  background: linear-gradient(118deg, var(--sd-primary-lighter), var(--sd-surface) 68%) !important;
+}
+
+html[data-smartdoc-theme="sage"] .profile-page .profile-form .el-input__wrapper.is-focus,
+html[data-smartdoc-theme="sage"] .profile-page .profile-form .el-textarea__inner:focus {
+  box-shadow: 0 0 0 1px var(--sd-primary) inset !important;
+}
+
+/* Agent 工作台、AI Ops 与旧预览页 */
+html[data-smartdoc-theme="sage"] .agent-workbench .workbench-header {
+  background: var(--sd-primary) !important;
+}
+
+html[data-smartdoc-theme="sage"] .agent-workbench .el-tag--primary,
+html[data-smartdoc-theme="sage"] .agent-workbench .el-link--primary,
+html[data-smartdoc-theme="sage"] .aiops-container .el-link--primary {
+  color: var(--sd-primary-active) !important;
+}
+
+html[data-smartdoc-theme="sage"] .agent-workbench .stat-box,
+html[data-smartdoc-theme="sage"] .aiops-container .metric-card,
+html[data-smartdoc-theme="sage"] .aiops-container .section-card {
+  border-color: var(--sd-border) !important;
+  background: var(--sd-surface) !important;
+}
+
+html[data-smartdoc-theme="sage"] .preview-shell {
+  --morandi-primary: var(--sd-primary);
+  --morandi-primary-soft: var(--sd-primary-soft);
+  --morandi-bg: var(--sd-page);
+  background: var(--sd-page) !important;
+}
+
+/* 少量暖金仅承担收藏、提醒和重点，不参与大面积装饰。 */
+html[data-smartdoc-theme="sage"] .el-tag--warning,
+html[data-smartdoc-theme="sage"] .warning,
+html[data-smartdoc-theme="sage"] [class*="favorite"].active {
+  --el-tag-text-color: #8b7347;
+  --el-tag-bg-color: #f4eddf;
+  --el-tag-border-color: #dfcfad;
+}
+
+/* 全站绿色一致性收口：提高侧栏可读性，并清除旧版蓝紫交互状态。 */
+html[data-smartdoc-theme="sage"] .feishu-layout .brand {
+  color: #3f4b43 !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-layout .nav-item {
+  color: #4d5951 !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.01em;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-layout .nav-item > .el-icon {
+  color: #68796d !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-layout .nav-item:hover,
+html[data-smartdoc-theme="sage"] .feishu-layout .nav-item.active,
+html[data-smartdoc-theme="sage"] .feishu-layout .nav-item.ai-chat-nav,
+html[data-smartdoc-theme="sage"] .feishu-layout .nav-item.toolbox-nav,
+html[data-smartdoc-theme="sage"] .feishu-layout .nav-item.aiops-nav,
+html[data-smartdoc-theme="sage"] .feishu-layout .nav-item.ai-chat-nav:hover,
+html[data-smartdoc-theme="sage"] .feishu-layout .nav-item.toolbox-nav:hover,
+html[data-smartdoc-theme="sage"] .feishu-layout .nav-item.aiops-nav:hover {
+  color: var(--sd-primary-active) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-layout .nav-item:hover,
+html[data-smartdoc-theme="sage"] .feishu-layout .nav-item.active,
+html[data-smartdoc-theme="sage"] .feishu-layout .nav-item.ai-chat-nav:hover,
+html[data-smartdoc-theme="sage"] .feishu-layout .nav-item.toolbox-nav:hover,
+html[data-smartdoc-theme="sage"] .feishu-layout .nav-item.aiops-nav:hover {
+  background: var(--sd-primary-lighter) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-layout .nav-item:hover > .el-icon,
+html[data-smartdoc-theme="sage"] .feishu-layout .nav-item.active > .el-icon {
+  color: var(--sd-primary-active) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-layout .username {
+  color: #465249 !important;
+  font-weight: 650 !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-layout .user-profile .el-avatar,
+html[data-smartdoc-theme="sage"] .feishu-layout .ai-hero > .el-avatar,
+html[data-smartdoc-theme="sage"] .feishu-layout .profile-avatar {
+  background: var(--sd-primary) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-layout .stat-card > .el-icon,
+html[data-smartdoc-theme="sage"] .feishu-layout .doc-category-badge,
+html[data-smartdoc-theme="sage"] .feishu-layout .category-board strong,
+html[data-smartdoc-theme="sage"] .feishu-layout .category-board-create {
+  color: var(--sd-primary-active) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-layout .category-dot {
+  background: var(--sd-primary) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-layout .category-board:hover,
+html[data-smartdoc-theme="sage"] .feishu-layout .library-filter:hover {
+  color: var(--sd-primary-active) !important;
+  border-color: var(--sd-primary) !important;
+  background: var(--sd-primary-subtle) !important;
+}
+
+/* Element Plus 的普通按钮、输入框和选择态统一使用主色；危险/警告状态保留语义色。 */
+html[data-smartdoc-theme="sage"] .el-button:not(.el-button--danger):not(.el-button--warning):not(.el-button--success):not(.el-button--primary):hover,
+html[data-smartdoc-theme="sage"] .el-button:not(.el-button--danger):not(.el-button--warning):not(.el-button--success):not(.el-button--primary):focus-visible {
+  color: var(--sd-primary-active) !important;
+  border-color: var(--sd-primary) !important;
+  background: var(--sd-primary-lighter) !important;
+}
+
+html[data-smartdoc-theme="sage"] .el-button--primary {
+  --el-button-bg-color: var(--sd-primary) !important;
+  --el-button-border-color: var(--sd-primary) !important;
+  --el-button-hover-bg-color: var(--sd-primary-hover) !important;
+  --el-button-hover-border-color: var(--sd-primary-hover) !important;
+  --el-button-active-bg-color: var(--sd-primary-active) !important;
+  --el-button-active-border-color: var(--sd-primary-active) !important;
+}
+
+html[data-smartdoc-theme="sage"] .el-button--primary:hover,
+html[data-smartdoc-theme="sage"] .el-button--primary:focus-visible {
+  color: #fff !important;
+  border-color: var(--sd-primary-hover) !important;
+  background: var(--sd-primary-hover) !important;
+}
+
+html[data-smartdoc-theme="sage"] .el-switch.is-checked .el-switch__core,
+html[data-smartdoc-theme="sage"] .el-radio__input.is-checked .el-radio__inner,
+html[data-smartdoc-theme="sage"] .el-checkbox__input.is-checked .el-checkbox__inner,
+html[data-smartdoc-theme="sage"] .el-checkbox__input.is-indeterminate .el-checkbox__inner {
+  border-color: var(--sd-primary) !important;
+  background: var(--sd-primary) !important;
+}
+
+html[data-smartdoc-theme="sage"] .el-radio__input.is-checked + .el-radio__label,
+html[data-smartdoc-theme="sage"] .el-checkbox__input.is-checked + .el-checkbox__label,
+html[data-smartdoc-theme="sage"] .el-select-dropdown__item.is-selected {
+  color: var(--sd-primary-active) !important;
+}
+
+/* SmartDoc AI 对话与编辑器残留状态。 */
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .brand-back,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .brand-back:hover,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .history-item,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .history-item:hover,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .history-item.active,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .stat-item .num {
+  color: var(--sd-primary-active) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .history-item:hover,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .history-item.active,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .new-chat-btn {
+  border-color: var(--sd-border-strong) !important;
+  background: var(--sd-primary-lighter) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .new-chat-btn {
+  --el-button-text-color: var(--sd-primary-active) !important;
+  --el-button-hover-text-color: var(--sd-primary-active) !important;
+  --el-button-hover-border-color: var(--sd-primary) !important;
+  --el-button-hover-bg-color: var(--sd-primary-soft) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .left-sidebar .el-avatar,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .header-right .el-avatar,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .source-card > span,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .ball-inner,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .chat-bubble.user {
+  background: var(--sd-primary) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .source-card:hover {
+  border-color: var(--sd-primary) !important;
+  background: var(--sd-primary-subtle) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .message-file-card > .el-icon,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .file-card > .el-icon,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .source-card .el-icon,
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .keyword-tag {
+  color: var(--sd-primary-active) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .keyword-tag {
+  --el-tag-bg-color: var(--sd-primary-lighter) !important;
+  --el-tag-border-color: var(--sd-border-strong) !important;
+  --el-tag-text-color: var(--sd-primary-active) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .summary-box {
+  border-color: var(--sd-border) !important;
+  border-left-color: var(--sd-primary) !important;
+  box-shadow: 0 4px 12px rgba(95, 113, 101, 0.08) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .ball-inner::after {
+  border-top-color: var(--sd-primary) !important;
+}
+
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .editor-page {
+  --editor-lavender: var(--sd-primary);
+  --editor-lavender-deep: var(--sd-primary-active);
+}
+
+html[data-smartdoc-theme="sage"] .feishu-chat-layout .save-status {
+  color: var(--sd-primary-active) !important;
+  background: var(--sd-primary-lighter) !important;
+}
+
+/* 全局 AI 抽屉内联蓝色图标也随主色变化。 */
+html[data-smartdoc-theme="sage"] .global-ai-drawer .header-actions .el-button:first-of-type,
+html[data-smartdoc-theme="sage"] .global-ai-drawer .agent-file-card > .el-icon {
+  color: var(--sd-primary-active) !important;
+}
+
+/* 工具箱、企业空间、练题和 Agent 工作台的悬停状态。 */
+html[data-smartdoc-theme="sage"] .toolbox-page .back-link,
+html[data-smartdoc-theme="sage"] .toolbox-page .back-link:hover,
+html[data-smartdoc-theme="sage"] .toolbox-page .advanced-card .card-title > .el-icon,
+html[data-smartdoc-theme="sage"] .toolbox-page .quiz-progress strong,
+html[data-smartdoc-theme="sage"] .toolbox-page .language-arrow {
+  color: var(--sd-primary-active) !important;
+}
+
+html[data-smartdoc-theme="sage"] .enterprise-page .back-workbench,
+html[data-smartdoc-theme="sage"] .enterprise-page .create-org,
+html[data-smartdoc-theme="sage"] .enterprise-page .org-item {
+  color: #4d5951 !important;
+}
+
+html[data-smartdoc-theme="sage"] .enterprise-page .back-workbench:hover,
+html[data-smartdoc-theme="sage"] .enterprise-page .create-org:hover,
+html[data-smartdoc-theme="sage"] .enterprise-page .org-item:hover {
+  color: var(--sd-primary-active) !important;
+  border-color: var(--sd-primary) !important;
+  background: var(--sd-primary-lighter) !important;
+}
+
+html[data-smartdoc-theme="sage"] .enterprise-page .enterprise-main::-webkit-scrollbar-thumb {
+  background: #b8c5bb !important;
+  background-clip: padding-box !important;
+}
+
+html[data-smartdoc-theme="sage"] .enterprise-page .enterprise-main::-webkit-scrollbar-thumb:hover {
+  background: var(--sd-primary) !important;
+  background-clip: padding-box !important;
+}
+
+html[data-smartdoc-theme="sage"] .enterprise-page .top-user em,
+html[data-smartdoc-theme="sage"] .enterprise-page .bar-row > div {
+  background: var(--sd-primary-soft) !important;
+}
+
+html[data-smartdoc-theme="sage"] .quiz-page .back-link,
+html[data-smartdoc-theme="sage"] .quiz-page .plain-back,
+html[data-smartdoc-theme="sage"] .quiz-page .back-link:hover,
+html[data-smartdoc-theme="sage"] .quiz-page .plain-back:hover,
+html[data-smartdoc-theme="sage"] .quiz-page .eyebrow,
+html[data-smartdoc-theme="sage"] .quiz-page .favorite-button.active {
+  color: var(--sd-primary-active) !important;
+}
+
+html[data-smartdoc-theme="sage"] .quiz-page .question-nav button:hover,
+html[data-smartdoc-theme="sage"] .quiz-page .type-summary button:hover,
+html[data-smartdoc-theme="sage"] .quiz-page .saved-set:hover {
+  color: var(--sd-primary-active) !important;
+  border-color: var(--sd-primary) !important;
+  background: var(--sd-primary-subtle) !important;
+}
+
+html[data-smartdoc-theme="sage"] .agent-workbench .tool-item:hover {
+  border-color: var(--sd-primary) !important;
+  box-shadow: 0 2px 8px rgba(95, 113, 101, 0.12) !important;
+}
+
+html[data-smartdoc-theme="sage"] .agent-workbench .stat-box .num {
+  color: var(--sd-primary-active) !important;
+}
+
+/* 保留的莫兰迪预览页也与当前主题一致。 */
+html[data-smartdoc-theme="sage"] .preview-shell .task-box:focus-within {
+  border-color: var(--sd-primary) !important;
+  box-shadow: 0 0 0 4px rgba(125, 146, 131, 0.16) !important;
+}
+
+html[data-smartdoc-theme="sage"] .preview-shell .task-send {
+  border-color: var(--sd-primary) !important;
+  background: var(--sd-primary) !important;
+  box-shadow: 0 6px 14px rgba(95, 113, 101, 0.25) !important;
+}
+
+html[data-smartdoc-theme="sage"] .preview-shell .task-send:hover,
+html[data-smartdoc-theme="sage"] .preview-shell .task-send:focus-visible {
+  border-color: var(--sd-primary-hover) !important;
+  background: var(--sd-primary-hover) !important;
+  box-shadow: 0 0 0 4px rgba(125, 146, 131, 0.18), 0 7px 16px rgba(95, 113, 101, 0.24) !important;
+}
+
+html[data-smartdoc-theme="sage"] .preview-shell .task-attach,
+html[data-smartdoc-theme="sage"] .preview-shell .surface-title .el-button,
+html[data-smartdoc-theme="sage"] .preview-shell .timeline-link {
+  color: var(--sd-primary-active) !important;
+}
+
+html[data-smartdoc-theme="sage"] .preview-shell .task-attach:hover,
+html[data-smartdoc-theme="sage"] .preview-shell .prompt-row button:hover {
+  color: var(--sd-primary-active) !important;
+  background: var(--sd-primary-lighter) !important;
+}

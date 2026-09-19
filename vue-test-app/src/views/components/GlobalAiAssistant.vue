@@ -140,7 +140,24 @@ const { isAiPanelVisible, chatHistory, isAiThinking, currentConvId, toggleAiPane
 onMounted(async () => {
   initializeConversation(localStorage.getItem('userId'))
   try {
-    const res = await aiApi.getModels()
+    let targetConversationId = currentConvId.value
+    if (!targetConversationId) {
+      const conversations = (await agentApi.listConversations('smartdoc-ai', { suppressGlobalError: true })).data || []
+      targetConversationId = conversations[0]?.id || ''
+    }
+    if (targetConversationId) {
+      const messages = (await agentApi.getConversationMessages(targetConversationId, { suppressGlobalError: true })).data || []
+      saveConvId(targetConversationId)
+      chatHistory.value.splice(0, chatHistory.value.length, ...messages.map(message => ({
+        role: message.role === 'user' ? 'user' : 'ai',
+        text: message.content || ''
+      })))
+    }
+  } catch (error) {
+    console.warn('SmartDoc AI 服务端历史恢复失败，继续使用本地记录', error)
+  }
+  try {
+    const res = await aiApi.getModels({ suppressGlobalError: true })
     modelOptions.value = res.data
     currentModel.value = 'deepseek-chat'
   } catch {
@@ -189,6 +206,8 @@ const handleSend = async () => {
       userId: uid,
       context: {
         isGlobalContext: true,
+        conversationChannel: 'smartdoc-ai',
+        displayUserMessage: q,
         pageContext: pageContext
       }
     })

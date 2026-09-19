@@ -51,6 +51,7 @@ public class ChapterSegmentStrategy implements SegmentStrategy {
         this.maxChapterLength = maxChapterLength;
     }
 
+    // 按章节标题定位切分点逐章生成分段；过长章节交给定长策略做子分段
     @Override
     public List<Segment> segment(String documentId, String content) {
         log.info("执行按章节分段: documentId={}, minChapterLength={}, maxChapterLength={}",
@@ -105,6 +106,7 @@ public class ChapterSegmentStrategy implements SegmentStrategy {
         return segments;
     }
 
+    // 用多组正则扫描全文，收集所有章节标题及其起始位置
     private List<ChapterMatch> findChapters(String content) {
         List<ChapterMatch> chapters = new ArrayList<>();
 
@@ -126,6 +128,7 @@ public class ChapterSegmentStrategy implements SegmentStrategy {
         return chapters;
     }
 
+    // 去掉标题前的编号、井号等前缀，得到纯标题文本
     private String cleanTitle(String title) {
         String cleaned = title;
         for (Pattern pattern : TITLE_CLEAN_PATTERNS) {
@@ -134,6 +137,7 @@ public class ChapterSegmentStrategy implements SegmentStrategy {
         return cleaned.trim();
     }
 
+    // 章节内容超长时，交给定长策略进一步切分为多个子分段
     private List<Segment> splitLargeChapter(String documentId, ChapterMatch chapter,
                                            String content, int startIndex) {
         List<Segment> subSegments = new ArrayList<>();

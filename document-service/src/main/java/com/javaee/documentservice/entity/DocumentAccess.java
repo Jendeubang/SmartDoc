@@ -18,6 +18,7 @@ public class DocumentAccess {
     private String id;
 
     private String documentId;
+    private String organizationId;
 
     private String bucketName;
 

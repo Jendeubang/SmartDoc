@@ -63,6 +63,13 @@ public class DocumentController {
         return Result.success(documentMapper.selectAccessibleByUserId(userId).stream().map(Document::getId).toList());
     }
 
+    @GetMapping("/access/catalog")
+    @Operation(summary = "获取可访问文档目录", description = "返回当前用户实时可访问的文档元数据，供 Agent 精确回答数量、名称和索引覆盖率")
+    public Result<List<DocumentVO>> accessibleDocumentCatalog() {
+        Long userId = requestUserContext.getRequiredUserId();
+        return Result.success(documentService.getByUserId(userId));
+    }
+
     @GetMapping("/{id}/access")
     @Operation(summary = "校验文档权限", description = "校验当前用户对文档的读或写权限")
     public Result<Map<String, Object>> checkAccess(@PathVariable String id,
@@ -298,6 +305,14 @@ public class DocumentController {
         Long userId = requestUserContext.getRequiredUserId();
         DocumentVO document = documentService.getById(id, userId);
         return Result.success(document);
+    }
+
+    @GetMapping("/{id}/source-content")
+    @Operation(summary = "读取原始上传正文", description = "只读解析原始上传文件，供校对等需要忠实原文的场景使用，不修改当前文档")
+    public Result<String> getOriginalSourceContent(
+            @Parameter(description = "文档ID") @PathVariable String id) {
+        Long userId = requestUserContext.getRequiredUserId();
+        return Result.success(documentService.getOriginalSourceContent(id, userId));
     }
 
     /**

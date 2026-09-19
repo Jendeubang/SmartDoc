@@ -9,6 +9,7 @@ import com.javaee.aiservice.dto.TextAnalyzeDTO;
 import com.javaee.aiservice.dto.TextSummarizeDTO;
 import com.javaee.aiservice.security.RequestUserContext;
 import com.javaee.common.model.Result;
+import com.javaee.common.config.security.TenantContext;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.enums.ParameterIn;
@@ -46,7 +47,7 @@ public class AsyncAIController {
                     schema = @Schema(allowableValues = {"qwen3.6-plus", "glm-5", "kimi-k2.5", "MiniMax-M2.5"},
                             defaultValue = "qwen3.6-plus"))
             @RequestParam(required = false) String model) {
-        return Result.success(asyncAIJobService.submit("summarize", dto, model, requestUserContext.getRequiredUserId()));
+        return Result.success(asyncAIJobService.submit("summarize", dto, model, requestUserContext.getRequiredUserId(), TenantContext.get()));
     }
 
     @PostMapping("/keywords")
@@ -58,13 +59,13 @@ public class AsyncAIController {
                     schema = @Schema(allowableValues = {"qwen3.6-plus", "glm-5", "kimi-k2.5", "MiniMax-M2.5"},
                             defaultValue = "qwen3.6-plus"))
             @RequestParam(required = false) String model) {
-        return Result.success(asyncAIJobService.submit("keywords", dto, model, requestUserContext.getRequiredUserId()));
+        return Result.success(asyncAIJobService.submit("keywords", dto, model, requestUserContext.getRequiredUserId(), TenantContext.get()));
     }
 
     @PostMapping("/analyze")
     @Operation(summary = "异步文档分析", description = "提交文档分析任务到RabbitMQ，立即返回jobId")
     public Result<AsyncAIJobVO> submitAnalyze(@RequestBody TextAnalyzeDTO dto) {
-        return Result.success(asyncAIJobService.submit("analyze", dto, null, requestUserContext.getRequiredUserId()));
+        return Result.success(asyncAIJobService.submit("analyze", dto, null, requestUserContext.getRequiredUserId(), TenantContext.get()));
     }
 
     @PostMapping("/chat")
@@ -76,7 +77,7 @@ public class AsyncAIController {
                     schema = @Schema(allowableValues = {"qwen3.6-plus", "glm-5", "kimi-k2.5", "MiniMax-M2.5"},
                             defaultValue = "qwen3.6-plus"))
             @RequestParam(required = false) String model) {
-        return Result.success(asyncAIJobService.submit("chat", dto, model, requestUserContext.getRequiredUserId()));
+        return Result.success(asyncAIJobService.submit("chat", dto, model, requestUserContext.getRequiredUserId(), TenantContext.get()));
     }
 
     @PostMapping("/agent/execute")
@@ -84,7 +85,7 @@ public class AsyncAIController {
     public Result<AsyncAIJobVO> submitAgent(@RequestBody AgentExecutionRequest request) {
         String userId = requestUserContext.getRequiredUserId();
         request.setUserId(userId);
-        return Result.success(asyncAIJobService.submit("agent", request, request.getModel(), userId));
+        return Result.success(asyncAIJobService.submit("agent", request, request.getModel(), userId, TenantContext.get()));
     }
 
     @GetMapping("/jobs/{jobId}")

@@ -136,6 +136,26 @@ class KnowledgeIndexAgentTest {
     }
 
     @Test
+    void asyncIfNeededReusesExistingIndexWithoutCreatingDuplicateJob() {
+        KnowledgeIndexAgent agent = new KnowledgeIndexAgent();
+        KnowledgeBase knowledgeBase = mock(KnowledgeBase.class);
+        ReflectionTestUtils.setField(agent, "knowledgeBase", knowledgeBase);
+        ReflectionTestUtils.setField(agent, "vectorStore", mock(VectorStore.class));
+        when(knowledgeBase.getDocumentMetadata("doc-existing"))
+                .thenReturn(Map.of("knowledgeBaseId", "default"));
+
+        Map<String, Object> result = agent.indexDocumentAsyncIfNeeded(
+                "doc-existing", "正文", Map.of("userId", "user-1", "knowledgeBaseId", "default"));
+
+        assertThat(result).containsEntry("status", "INDEXED")
+                .containsEntry("documentId", "doc-existing")
+                .containsEntry("reused", true);
+        @SuppressWarnings("unchecked")
+        Map<String, KnowledgeIndexJob> jobs = (Map<String, KnowledgeIndexJob>) ReflectionTestUtils.getField(agent, "jobs");
+        assertThat(jobs).isEmpty();
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void listJobsFiltersByOwnerAndDeleteRemovesEntry() {
         KnowledgeIndexAgent agent = new KnowledgeIndexAgent();

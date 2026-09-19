@@ -9,6 +9,7 @@ package com.javaee.aiservice.async;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.javaee.aiservice.config.AiRabbitMQConfig;
+import com.javaee.common.config.security.TenantContext;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -39,6 +40,10 @@ public class AsyncAIJobService {
     private long jobExpiryHours;
 
     public AsyncAIJobVO submit(String type, Object payload, String model, String userId) {
+        return submit(type, payload, model, userId, TenantContext.get());
+    }
+
+    public AsyncAIJobVO submit(String type, Object payload, String model, String userId, String organizationId) {
         String jobId = UUID.randomUUID().toString();
         long now = System.currentTimeMillis();
 
@@ -56,6 +61,7 @@ public class AsyncAIJobService {
         message.setType(type);
         message.setModel(model);
         message.setUserId(userId);
+        message.setOrganizationId(organizationId);
         message.setCreatedAt(now);
         message.setPayload(toMap(payload));
 

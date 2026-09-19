@@ -21,28 +21,39 @@ services:
     volumes:
       - mysql-data:/var/lib/mysql
       - ./init-db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
-    ports:
-      - "3306:3306"
+      - ./init-db/migrations:/opt/smartdoc/migrations:ro
+    expose:
+      - "3306"
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits: { cpus: "1.5", memory: 1536M }
+    security_opt: ["no-new-privileges:true"]
 
   redis:
-    image: redis:7.0
+    # Redis Stack 内置 RediSearch，供 Spring AI RedisVectorStore 创建 HNSW 向量索引。
+    image: redis/redis-stack-server:latest
     container_name: docai-redis
     restart: always
-    command: redis-server --appendonly yes
+    environment:
+      REDIS_ARGS: --appendonly yes
     volumes:
       - redis-data:/data
-    ports:
-      - "6379:6379"
+    expose:
+      - "6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits: { cpus: "0.75", memory: 768M }
+    security_opt: ["no-new-privileges:true"]
 
   rabbitmq:
     image: rabbitmq:3.8-management
@@ -51,14 +62,18 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
-    ports:
-      - "5672:5672"
-      - "15672:15672"
+    expose:
+      - "5672"
+      - "15672"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 15s
       timeout: 10s
       retries: 5
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 1024M }
+    security_opt: ["no-new-privileges:true"]
 
   minio:
     image: minio/minio
@@ -70,14 +85,37 @@ services:
     command: server /data --console-address ":9001"
     volumes:
       - minio-data:/data
-    ports:
-      - "9000:9000"
-      - "9001:9001"
+    expose:
+      - "9000"
+      - "9001"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 15s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 1024M }
+    security_opt: ["no-new-privileges:true"]
+
+  clamav:
+    image: clamav/clamav:1.4
+    container_name: smartdoc-clamav
+    restart: always
+    expose:
+      - "3310"
+    volumes:
+      - clamav-data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 1536M }
+    security_opt: ["no-new-privileges:true"]
 
   # ──────────── 业务服务 ────────────
 
@@ -102,8 +140,23 @@ services:
       # 禁用 Nacos
       SPRING_CLOUD_NACOS_DISCOVERY_ENABLED: "false"
       SPRING_CLOUD_NACOS_CONFIG_ENABLED: "false"
-    ports:
-      - "8081:8081"
+      JWT_KEYS: ${JWT_KEYS}
+      JWT_ACTIVE_KID: ${JWT_ACTIVE_KID}
+      SECURITY_INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
+      SECURITY_CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      SECURITY_PASSWORD_RESET_DELIVERY_URL: ${PASSWORD_RESET_DELIVERY_URL:-}
+      SECURITY_PASSWORD_RESET_DELIVERY_TOKEN: ${PASSWORD_RESET_DELIVERY_TOKEN:-}
+      SECURITY_PASSWORD_RESET_FRONTEND_URL: ${PASSWORD_RESET_FRONTEND_URL:-http://localhost:5173/reset-password}
+      SMARTDOC_BOOTSTRAP_ADMIN_USERNAME: ${SMARTDOC_BOOTSTRAP_ADMIN_USERNAME:-}
+      SMARTDOC_BOOTSTRAP_ADMIN_PASSWORD: ${SMARTDOC_BOOTSTRAP_ADMIN_PASSWORD:-}
+      SMARTDOC_BOOTSTRAP_ADMIN_EMAIL: ${SMARTDOC_BOOTSTRAP_ADMIN_EMAIL:-}
+      SMARTDOC_BOOTSTRAP_ADMIN_PHONE: ${SMARTDOC_BOOTSTRAP_ADMIN_PHONE:-}
+    expose:
+      - "8081"
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 768M }
+    security_opt: ["no-new-privileges:true"]
 
   file-service:
     build:
@@ -119,6 +172,8 @@ services:
       rabbitmq:
         condition: service_healthy
       minio:
+        condition: service_healthy
+      clamav:
         condition: service_healthy
     environment:
       # 数据库
@@ -139,8 +194,18 @@ services:
       DOCUMENT_SERVICE_URL: http://document-service:8084
       # 禁用 Nacos
       SPRING_CLOUD_NACOS_DISCOVERY_ENABLED: "false"
-    ports:
-      - "8082:8082"
+      JWT_KEYS: ${JWT_KEYS}
+      JWT_ACTIVE_KID: ${JWT_ACTIVE_KID}
+      SECURITY_INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
+      SECURITY_MALWARE_SCAN_ENABLED: ${SECURITY_MALWARE_SCAN_ENABLED:-false}
+      SECURITY_MALWARE_SCAN_REQUIRED: ${SECURITY_MALWARE_SCAN_REQUIRED:-false}
+      SECURITY_MALWARE_SCAN_HOST: clamav
+    expose:
+      - "8082"
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 1024M }
+    security_opt: ["no-new-privileges:true"]
 
   ai-service:
     build:
@@ -176,15 +241,30 @@ services:
       # DeepSeek API
       SPRING_AI_OPENAI_API_KEY: ${OPENAI_API_KEY}
       SPRING_AI_OPENAI_BASE_URL: https://api.deepseek.com
+      # 用户自带模型密钥的服务端加密主密钥，只从 .env/Secret 注入，禁止写入代码仓库
+      SMARTDOC_AI_CREDENTIAL_MASTER_KEY: ${SMARTDOC_AI_CREDENTIAL_MASTER_KEY:-}
       # DashScope Qwen3-ASR-Flash for uploaded meeting recordings
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      # DashScope text-embedding-v4 for RAG vectorization
+      DASHSCOPE_EMBEDDING_BASE_URL: ${DASHSCOPE_EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode}
+      DASHSCOPE_EMBEDDING_MODEL: ${DASHSCOPE_EMBEDDING_MODEL:-text-embedding-v4}
+      DASHSCOPE_EMBEDDING_DIMENSIONS: ${DASHSCOPE_EMBEDDING_DIMENSIONS:-1536}
       DASHSCOPE_ASR_BASE_URL: ${DASHSCOPE_ASR_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions}
       DASHSCOPE_ASR_MODEL: ${DASHSCOPE_ASR_MODEL:-qwen3-asr-flash}
+      DOCUMENT_SERVICE_URL: http://document-service:8084
       # 禁用 Nacos
       SPRING_CLOUD_NACOS_DISCOVERY_ENABLED: "false"
       SPRING_CLOUD_NACOS_CONFIG_ENABLED: "false"
-    ports:
-      - "8083:8083"
+      JWT_KEYS: ${JWT_KEYS}
+      JWT_ACTIVE_KID: ${JWT_ACTIVE_KID}
+      SECURITY_INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
+      SECURITY_CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+    expose:
+      - "8083"
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 1536M }
+    security_opt: ["no-new-privileges:true"]
 
   document-service:
     build:
@@ -222,8 +302,16 @@ services:
       USER_SERVICE_URL: http://user-service:8081
       # 禁用 Nacos
       SPRING_CLOUD_NACOS_DISCOVERY_ENABLED: "false"
-    ports:
-      - "8084:8084"
+      JWT_KEYS: ${JWT_KEYS}
+      JWT_ACTIVE_KID: ${JWT_ACTIVE_KID}
+      SECURITY_INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
+      SECURITY_CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+    expose:
+      - "8084"
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 1536M }
+    security_opt: ["no-new-privileges:true"]
 
   gateway-service:
     build:
@@ -258,10 +346,20 @@ services:
       # 禁用 Nacos
       SPRING_CLOUD_NACOS_DISCOVERY_ENABLED: "false"
       SPRING_CLOUD_NACOS_CONFIG_ENABLED: "false"
+      JWT_KEYS: ${JWT_KEYS}
+      JWT_ACTIVE_KID: ${JWT_ACTIVE_KID}
+      # 由网关注入到下游服务，供下游验证可信身份头；浏览器无法伪造该令牌。
+      SECURITY_INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
+      SECURITY_CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 768M }
+    security_opt: ["no-new-privileges:true"]
 
 volumes:
   mysql-data:
   redis-data:
   minio-data:
+  clamav-data:

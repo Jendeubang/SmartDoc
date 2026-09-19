@@ -33,3 +33,23 @@ test('runAsyncJob throws failed job error', async () => {
 
   await assert.rejects(() => runner.runAsyncJob(), /model unavailable/)
 })
+
+test('runAsyncJob rejects a submission without job id', async () => {
+  const runner = createAsyncJobRunner({
+    submit: async () => ({ data: {} }),
+    getJob: async () => ({ data: {} }),
+    delay: async () => {}
+  })
+
+  await assert.rejects(() => runner.runAsyncJob(), /jobId/)
+})
+
+test('runAsyncJob rejects an unknown server status', async () => {
+  const runner = createAsyncJobRunner({
+    submit: async () => ({ data: { jobId: 'job-3' } }),
+    getJob: async () => ({ data: { status: 'paused' } }),
+    delay: async () => {}
+  })
+
+  await assert.rejects(() => runner.runAsyncJob(), /paused/)
+})

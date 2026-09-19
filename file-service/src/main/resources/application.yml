@@ -122,3 +122,11 @@ management:
       show-details: never
       probes:
         enabled: true
+
+security:
+  malware-scan:
+    enabled: ${SECURITY_MALWARE_SCAN_ENABLED:false}
+    required: ${SECURITY_MALWARE_SCAN_REQUIRED:false}
+    host: ${SECURITY_MALWARE_SCAN_HOST:clamav}
+    port: ${SECURITY_MALWARE_SCAN_PORT:3310}
+    timeout-ms: ${SECURITY_MALWARE_SCAN_TIMEOUT_MS:15000}

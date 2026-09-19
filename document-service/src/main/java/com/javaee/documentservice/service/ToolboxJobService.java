@@ -1,6 +1,7 @@
 package com.javaee.documentservice.service;
 
 import com.javaee.common.exception.BusinessException;
+import com.javaee.common.config.security.InternalServiceTokenProvider;
 import com.javaee.documentservice.dto.ToolboxJobRequest;
 import com.javaee.documentservice.util.DocumentParserUtil;
 import com.javaee.documentservice.vo.DocumentVO;
@@ -40,6 +41,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
+/**
+ * 工具箱任务服务（对应简历第 5 条「文档生产力工具箱」）
+ * 负责 OCR、PDF 拆分/合并、Word 表格导出 Excel、DOCX/PDF 互转六类异步任务：
+ * 任务经 RabbitMQ 投递异步执行，底层使用 PDFBox/Tesseract/POI/LibreOffice 完成文件处理，
+ * 进度与结果写入 Redis，支持状态查询、结果下载与失败重试。
+ */
 @Service
 public class ToolboxJobService {
     private static final String EXCHANGE = "file.exchange";
@@ -57,6 +64,7 @@ public class ToolboxJobService {
     private final DocumentService documents;
     private final RabbitTemplate rabbit;
     private final RedisTemplate<String, Object> redis;
+    private final InternalServiceTokenProvider internalServiceTokenProvider;
     private final RestTemplate http = new RestTemplate();
     private final Map<String, Map<String, Object>> jobs = new ConcurrentHashMap<>();
     private final Map<String, byte[]> files = new ConcurrentHashMap<>();
@@ -66,12 +74,15 @@ public class ToolboxJobService {
     @Value("${file.service.url:http://localhost:8082}")
     private String fileUrl;
 
-    public ToolboxJobService(DocumentService documents, RabbitTemplate rabbit, RedisTemplate<String, Object> redis) {
+    public ToolboxJobService(DocumentService documents, RabbitTemplate rabbit, RedisTemplate<String, Object> redis,
+                             InternalServiceTokenProvider internalServiceTokenProvider) {
         this.documents = documents;
         this.rabbit = rabbit;
         this.redis = redis;
+        this.internalServiceTokenProvider = internalServiceTokenProvider;
     }
 
+    // 提交工具箱任务：校验参数与租户范围，生成任务记录并投递到 RabbitMQ 异步执行
     public Map<String, Object> submit(ToolboxJobRequest request, Long userId, String authorization) {
         if (request.getDocumentIds() == null || request.getDocumentIds().isEmpty()) {
             throw new BusinessException("Please select a source document");
@@ -94,6 +105,13 @@ public class ToolboxJobService {
         job.put("toolType", type);
         job.put("documentIds", request.getDocumentIds());
         job.put("documentNames", sourceDocuments.stream().map(DocumentVO::getTitle).toList());
+        List<String> organizationIds = sourceDocuments.stream().map(DocumentVO::getOrganizationId)
+                .filter(value -> value != null && !value.isBlank()).distinct().toList();
+        if (organizationIds.size() > 1 || (!organizationIds.isEmpty() &&
+                sourceDocuments.stream().anyMatch(document -> document.getOrganizationId() == null || document.getOrganizationId().isBlank()))) {
+            throw new BusinessException("A toolbox task cannot mix documents from different tenant scopes");
+        }
+        job.put("organizationId", organizationIds.isEmpty() ? "personal" : organizationIds.get(0));
         job.put("pages", Optional.ofNullable(request.getPages()).orElse(""));
         job.put("status", "PENDING");
         job.put("progress", 5);
@@ -102,15 +120,17 @@ public class ToolboxJobService {
         jobs.put(jobId, job);
         jobTokens.put(jobId, authorization);
         persistJob(job);
-        persistToken(jobId, authorization);
-        rabbit.convertAndSend(EXCHANGE, KEY, jobId);
+        persistToken(job, authorization);
+        rabbit.convertAndSend(EXCHANGE, KEY, tenantMessage(job));
         return snapshot(jobId, userId);
     }
 
+    // 返回单个任务的当前状态快照（先做归属校验，防止越权访问他人任务）
     public Map<String, Object> snapshot(String jobId, Long userId) {
         return new LinkedHashMap<>(owned(jobId, userId));
     }
 
+    // 列出当前用户最近的任务（优先读 Redis 有序集合，失败时回退到内存 Map）
     public List<Map<String, Object>> list(Long userId) {
         List<Map<String, Object>> result = new ArrayList<>();
         try {
@@ -131,31 +151,33 @@ public class ToolboxJobService {
         return result;
     }
 
+    // 重试失败任务：清空旧结果，重置状态后重新投递到队列
     public Map<String, Object> retry(String jobId, Long userId, String authorization) {
         Map<String, Object> job = owned(jobId, userId);
         if (!"FAILED".equals(String.valueOf(job.get("status")))) {
             throw new BusinessException("Only failed tasks can be retried");
         }
         files.remove(jobId);
-        try { redis.delete(REDIS_OUTPUT_PREFIX + jobId); } catch (Exception ignored) { }
+        try { redis.delete(tenantPrefix(job) + REDIS_OUTPUT_PREFIX + jobId); } catch (Exception ignored) { }
         job.put("status", "PENDING");
         job.put("progress", 5);
         job.put("message", "Retry queued");
         job.put("retryCount", ((Number) job.getOrDefault("retryCount", 0)).intValue() + 1);
         job.put("updatedAt", Instant.now().toString());
         jobTokens.put(jobId, authorization);
-        persistToken(jobId, authorization);
+        persistToken(job, authorization);
         persistJob(job);
-        rabbit.convertAndSend(EXCHANGE, KEY, jobId);
+        rabbit.convertAndSend(EXCHANGE, KEY, tenantMessage(job));
         return snapshot(jobId, userId);
     }
 
+    // 获取任务结果文件：先查内存缓存，再从 Redis 恢复，未就绪则报错
     public byte[] output(String jobId, Long userId) {
         owned(jobId, userId);
         byte[] output = files.get(jobId);
         if (output == null) {
             try {
-                Object stored = redis.opsForValue().get(REDIS_OUTPUT_PREFIX + jobId);
+                Object stored = redis.opsForValue().get(tenantPrefix(owned(jobId, userId)) + REDIS_OUTPUT_PREFIX + jobId);
                 if (stored instanceof byte[] bytes) {
                     output = bytes;
                     files.put(jobId, bytes);
@@ -168,8 +190,10 @@ public class ToolboxJobService {
         return output;
     }
 
+    // RabbitMQ 消费者：解析消息拿到任务后按 toolType 分发到对应处理器并推进进度
     @RabbitListener(queues = QUEUE)
-    public void process(String jobId) {
+    public void process(String message) {
+        String jobId = message != null && message.contains("|") ? message.substring(message.lastIndexOf('|') + 1) : message;
         Map<String, Object> job = jobs.get(jobId);
         if (job == null) {
             job = loadJob(jobId);
@@ -177,7 +201,7 @@ public class ToolboxJobService {
         }
         if (job == null) return;
         String token = jobTokens.get(jobId);
-        if (token == null) token = loadToken(jobId);
+        if (token == null) token = loadToken(job);
         requestToken.set(token);
         try {
             update(job, "PROCESSING", 15, "Reading source file");
@@ -199,7 +223,7 @@ public class ToolboxJobService {
                 default -> throw new BusinessException("Unsupported toolbox job type");
             };
             files.put(jobId, result);
-            persistOutput(jobId, result);
+            persistOutput(job, result);
             job.put("fileName", fileName(type));
             job.put("contentType", contentType(type));
             update(job, "SUCCESS", 100, "Completed. Your result is ready to download.");
@@ -208,10 +232,11 @@ public class ToolboxJobService {
         } finally {
             requestToken.remove();
             jobTokens.remove(jobId);
-            try { redis.delete(REDIS_TOKEN_PREFIX + jobId); } catch (Exception ignored) { }
+            try { redis.delete(tenantPrefix(job) + REDIS_TOKEN_PREFIX + jobId); } catch (Exception ignored) { }
         }
     }
 
+    // OCR 识别：下载源文件后调用 DocumentParserUtil 提取文字，输出纯文本
     private byte[] ocr(DocumentVO document, Map<String, Object> job) {
         update(job, "PROCESSING", 50, "Running OCR recognition");
         String text = DocumentParserUtil.parseDocument(download(document), document.getTitle());
@@ -221,6 +246,7 @@ public class ToolboxJobService {
         return text.getBytes(StandardCharsets.UTF_8);
     }
 
+    // PDF 拆分：按指定页码范围抽取页面，合并成新的 PDF 文件
     private byte[] split(DocumentVO document, String rawPages, Map<String, Object> job) throws IOException {
         update(job, "PROCESSING", 50, "Splitting PDF pages");
         Set<Integer> pages = parsePages(rawPages);
@@ -240,6 +266,7 @@ public class ToolboxJobService {
         }
     }
 
+    // PDF 合并：依次把多个源 PDF 的所有页面导入到同一个新文档
     private byte[] merge(List<DocumentVO> documentsToMerge, Map<String, Object> job) throws IOException {
         try (PDDocument output = new PDDocument(); ByteArrayOutputStream bytes = new ByteArrayOutputStream()) {
             for (int index = 0; index < documentsToMerge.size(); index++) {
@@ -255,6 +282,7 @@ public class ToolboxJobService {
         }
     }
 
+    // Word 表格导出 Excel：遍历 DOCX 中的每个表格，逐一写入对应工作表
     private byte[] excel(DocumentVO document, Map<String, Object> job) throws IOException {
         update(job, "PROCESSING", 50, "Extracting Word tables into Excel");
         try (XWPFDocument word = new XWPFDocument(new ByteArrayInputStream(download(document)));
@@ -279,6 +307,7 @@ public class ToolboxJobService {
         }
     }
 
+    // DOCX 转 PDF：落地临时文件后调用 LibreOffice 无头模式完成转换
     private byte[] docxToPdf(DocumentVO document, Map<String, Object> job) throws Exception {
         requireExtension(document, ".docx", "DOCX to PDF");
         update(job, "PROCESSING", 45, "Converting DOCX to PDF");
@@ -305,6 +334,7 @@ public class ToolboxJobService {
         }
     }
 
+    // PDF 转 DOCX：用 PDFBox 抽取文本，按段落写入可编辑的 Word 文档
     private byte[] pdfToDocx(DocumentVO document, Map<String, Object> job) throws IOException {
         requireExtension(document, ".pdf", "PDF to DOCX");
         update(job, "PROCESSING", 45, "Extracting editable text from PDF");
@@ -327,6 +357,7 @@ public class ToolboxJobService {
         }
     }
 
+    // 通过文件服务 HTTP 接口下载源文档字节，携带原请求的鉴权令牌
     private byte[] download(DocumentVO document) {
         if (document.getFileId() == null || document.getFileId().isBlank()) {
             throw new BusinessException("This document has no source file");
@@ -335,6 +366,12 @@ public class ToolboxJobService {
         String token = requestToken.get();
         if (token != null && !token.isBlank()) {
             headers.set("Authorization", token);
+        }
+        // 异步任务不经过网关，必须携带服务间令牌才能通过 file-service 的可信调用校验。
+        headers.set("X-Internal-Service-Token", internalServiceTokenProvider.getRequiredToken());
+        // TrustedGatewayAuthenticationFilter 同时要求可信的文档所属用户 ID，不能只依赖异步任务保存的 JWT。
+        if (document.getUserId() != null) {
+            headers.set("X-User-Id", String.valueOf(document.getUserId()));
         }
         var response = http.exchange(
                 fileUrl + "/api/files/download/" + document.getFileId(),
@@ -348,6 +385,7 @@ public class ToolboxJobService {
         return response.getBody();
     }
 
+    // 校验任务存在且归属当前用户，返回任务数据（防止跨用户访问）
     private Map<String, Object> owned(String jobId, Long userId) {
         Map<String, Object> job = jobs.get(jobId);
         if (job == null) {
@@ -375,8 +413,10 @@ public class ToolboxJobService {
         try {
             String jobId = String.valueOf(job.get("jobId"));
             Long userId = ((Number) job.get("userId")).longValue();
-            String key = REDIS_JOB_PREFIX + jobId;
+            String key = tenantPrefix(job) + REDIS_JOB_PREFIX + jobId;
             redis.opsForValue().set(key, new LinkedHashMap<>(job), JOB_TTL_DAYS, TimeUnit.DAYS);
+            redis.opsForValue().set("smartdoc:toolbox:scope:" + jobId,
+                    String.valueOf(job.getOrDefault("organizationId", "personal")), JOB_TTL_DAYS, TimeUnit.DAYS);
             String userKey = REDIS_USER_PREFIX + userId;
             redis.opsForZSet().add(userKey, jobId, Instant.parse(String.valueOf(job.get("createdAt"))).toEpochMilli());
             redis.expire(userKey, JOB_TTL_DAYS, TimeUnit.DAYS);
@@ -388,7 +428,9 @@ public class ToolboxJobService {
     @SuppressWarnings("unchecked")
     private Map<String, Object> loadJob(String jobId) {
         try {
-            Object value = redis.opsForValue().get(REDIS_JOB_PREFIX + jobId);
+            Object scope = redis.opsForValue().get("smartdoc:toolbox:scope:" + jobId);
+            Object value = scope == null ? redis.opsForValue().get(REDIS_JOB_PREFIX + jobId)
+                    : redis.opsForValue().get("tenant:" + scope + ":" + REDIS_JOB_PREFIX + jobId);
             if (value instanceof Map<?, ?> map) {
                 Map<String, Object> restored = new ConcurrentHashMap<>();
                 map.forEach((key, item) -> restored.put(String.valueOf(key), item));
@@ -398,28 +440,37 @@ public class ToolboxJobService {
         return null;
     }
 
-    private void persistOutput(String jobId, byte[] output) {
+    private String tenantMessage(Map<String, Object> job) {
+        return String.valueOf(job.getOrDefault("organizationId", "personal")) + "|" + job.get("userId") + "|" + job.get("jobId");
+    }
+
+    private String tenantPrefix(Map<String, Object> job) {
+        return "tenant:" + String.valueOf(job.getOrDefault("organizationId", "personal")) + ":";
+    }
+
+    private void persistOutput(Map<String, Object> job, byte[] output) {
         try {
-            redis.opsForValue().set(REDIS_OUTPUT_PREFIX + jobId, output, JOB_TTL_DAYS, TimeUnit.DAYS);
+            redis.opsForValue().set(tenantPrefix(job) + REDIS_OUTPUT_PREFIX + job.get("jobId"), output, JOB_TTL_DAYS, TimeUnit.DAYS);
         } catch (Exception ignored) { }
     }
 
-    private void persistToken(String jobId, String authorization) {
+    private void persistToken(Map<String, Object> job, String authorization) {
         if (authorization == null || authorization.isBlank()) return;
         try {
-            redis.opsForValue().set(REDIS_TOKEN_PREFIX + jobId, authorization, 2, TimeUnit.HOURS);
+            redis.opsForValue().set(tenantPrefix(job) + REDIS_TOKEN_PREFIX + job.get("jobId"), authorization, 2, TimeUnit.HOURS);
         } catch (Exception ignored) { }
     }
 
-    private String loadToken(String jobId) {
+    private String loadToken(Map<String, Object> job) {
         try {
-            Object token = redis.opsForValue().get(REDIS_TOKEN_PREFIX + jobId);
+            Object token = redis.opsForValue().get(tenantPrefix(job) + REDIS_TOKEN_PREFIX + job.get("jobId"));
             return token == null ? null : String.valueOf(token);
         } catch (Exception ignored) {
             return null;
         }
     }
 
+    // 解析页码表达式（如 "1-3,5,7-9"）为去重且有序的页码集合
     private Set<Integer> parsePages(String rawPages) {
         Set<Integer> pages = new TreeSet<>();
         if (rawPages == null || rawPages.isBlank()) {

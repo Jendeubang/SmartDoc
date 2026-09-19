@@ -35,6 +35,8 @@ public class FileMetadata {
 
     private String bucketName;
 
+    private String organizationId;
+
     private String objectKey;
 
     private String status;

@@ -35,6 +35,8 @@ public class Document {
 
     private String folderId;
 
+    private String enterpriseAccessLevel;
+
     private String bucketName;
 
     private String objectName;

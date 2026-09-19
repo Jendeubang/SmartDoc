@@ -56,6 +56,7 @@ public class DocumentSegmenter {
         return segment(documentId, content, defaultStrategy);
     }
 
+    // 分段调度入口：按策略枚举分发到对应分段策略，AUTO/HYBRID 走专属逻辑
     public List<SegmentStrategy.Segment> segment(String documentId, String content, StrategyType strategyType) {
         log.info("开始文档分段: documentId={}, strategy={}", documentId, strategyType);
 
@@ -78,6 +79,7 @@ public class DocumentSegmenter {
         return segments;
     }
 
+    // 混合分段：先按章节切分，再对每个章节做语义细分，最后去重并重建分段索引
     public List<SegmentStrategy.Segment> segmentWithHybrid(String documentId, String content) {
         log.info("执行混合分段: documentId={}", documentId);
 
@@ -117,6 +119,7 @@ public class DocumentSegmenter {
         return finalResult;
     }
 
+    // 自动选择：根据章节标记与文档长度，自动决定最合适的分段策略
     public List<SegmentStrategy.Segment> segmentByAuto(String documentId, String content) {
         log.info("执行自动分段策略选择: documentId={}", documentId);
 
@@ -142,6 +145,7 @@ public class DocumentSegmenter {
         return segment(documentId, content, selectedStrategy);
     }
 
+    // 检测文档是否包含章节结构标记（第X章/Chapter/Section 等）
     private boolean detectChapterMarkers(String content) {
         String[] chapterPatterns = {
             "第1章", "第2章", "第1节", "第2节",
@@ -157,6 +161,7 @@ public class DocumentSegmenter {
         return false;
     }
 
+    // 根据策略枚举返回对应的具体分段策略实现
     private SegmentStrategy getSingleStrategy(StrategyType strategyType) {
         switch (strategyType) {
             case FIXED_LENGTH:

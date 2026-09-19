@@ -17,6 +17,8 @@ import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.*;
 
+// 安全分享链接接口：生成带令牌/密码/过期时间的文档分享链接，并支持匿名访问校验。
+// 对应简历第 6 条「企业空间与在线协同」中的安全分享链接。
 @RestController
 public class SecureShareController {
     private final JdbcTemplate jdbc;
@@ -32,6 +34,7 @@ public class SecureShareController {
         this.jdbc = jdbc; this.documents = documents; this.access = access; this.contents = contents; this.users = users; this.audit = audit;
     }
 
+    // 创建安全分享：生成随机令牌，支持密码、过期时间与访问次数上限
     @PostMapping("/api/enterprise/shares")
     public Result<Map<String, Object>> create(@RequestBody Map<String, Object> body) {
         Long userId = users.getRequiredUserId();
@@ -44,8 +47,8 @@ public class SecureShareController {
         int expiresHours = intValue(body.get("expiresHours"), 0, 8760, 168);
         int maxAccess = intValue(body.get("maxAccess"), 0, 100000, 0);
         String id = UUID.randomUUID().toString();
-        jdbc.update("INSERT INTO document_secure_share(id,token_hash,document_id,created_by,password_hash,expires_at,max_access) VALUES(?,?,?,?,?,?,?)",
-                id, sha256(rawToken), documentId, userId, password.isBlank() ? null : encoder.encode(password),
+        jdbc.update("INSERT INTO document_secure_share(id,token_hash,document_id,organization_id,created_by,password_hash,expires_at,max_access) VALUES(?,?,?,?,?,?,?,?)",
+                id, sha256(rawToken), documentId, document.getOrganizationId(), userId, password.isBlank() ? null : encoder.encode(password),
                 expiresHours == 0 ? null : LocalDateTime.now().plusHours(expiresHours), maxAccess);
         audit.record(document.getOrganizationId(), userId, "SHARE_CREATE", "share", id, "document=" + documentId);
         Map<String, Object> result = new LinkedHashMap<>();
@@ -53,12 +56,14 @@ public class SecureShareController {
         return Result.success(result);
     }
 
+    // 列出当前用户创建的分享链接
     @GetMapping("/api/enterprise/shares")
     public Result<List<Map<String, Object>>> list() {
         Long userId = users.getRequiredUserId();
         return Result.success(jdbc.queryForList("SELECT s.id,s.document_id,d.title,s.expires_at,s.max_access,s.access_count,s.status,s.create_time,(s.password_hash IS NOT NULL) password_protected FROM document_secure_share s LEFT JOIN document d ON d.id=s.document_id WHERE s.created_by=? ORDER BY s.create_time DESC", userId));
     }
 
+    // 撤销分享链接
     @DeleteMapping("/api/enterprise/shares/{id}")
     public Result<Void> revoke(@PathVariable String id) {
         Long userId = users.getRequiredUserId();
@@ -67,6 +72,7 @@ public class SecureShareController {
         return Result.success();
     }
 
+    // 匿名打开分享：校验状态、过期时间、访问次数与密码后返回文档内容
     @PostMapping("/api/public/shares/{token}")
     public Result<Map<String, Object>> open(@PathVariable String token, @RequestBody(required = false) Map<String, Object> body) {
         List<Map<String, Object>> rows = jdbc.queryForList("SELECT * FROM document_secure_share WHERE token_hash=?", sha256(token));
@@ -95,5 +101,6 @@ public class SecureShareController {
 
     private String text(Object value) { return value == null ? "" : String.valueOf(value).trim(); }
     private int intValue(Object value, int min, int max, int fallback) { try { int n = Integer.parseInt(text(value)); return n >= min && n <= max ? n : fallback; } catch (Exception e) { return fallback; } }
+    // 对令牌做 SHA-256 摘要后存储，避免明文泄露
     private String sha256(String value) { try { byte[] bytes = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)); return HexFormat.of().formatHex(bytes); } catch (Exception e) { throw new IllegalStateException(e); } }
 }

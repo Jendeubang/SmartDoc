@@ -17,11 +17,13 @@ import java.util.Set;
 /**
  * Central catalog for every tool the Agent planner is allowed to use.
  */
+// 类职责：Agent 工具注册中心（对应简历第1条「AgentToolRegistry 管理工具」）——集中登记约 17 个工具及其参数 Schema，供规划器与反思器查询、校验和生成提示词。
 @Component
 public class AgentToolRegistry {
 
     private final Map<String, AgentToolDefinition> tools = new LinkedHashMap<>();
 
+    // 构造时统一注册全部工具：登记名称、描述、参数说明、必填参数、是否危险操作、分类及是否需要用户确认。
     public AgentToolRegistry() {
         register("direct-answer", "不调用外部工具，直接基于模型和上下文回答用户。",
                 Map.of("question", "用户问题"), Set.of(), false, "llm", false);
@@ -38,6 +40,10 @@ public class AgentToolRegistry {
                 Map.of("query", "查询词", "topK", "检索条数，默认5",
                         "rerankStrategy", "重排序策略，默认HYBRID；只影响候选片段排序，不代表业务检索策略"),
                 Set.of("query"), false, "rag", false);
+        register("document-catalog", "查询当前用户实时可访问的文档目录。回答文档数量、文件数量、文档名称、文档列表和知识库索引覆盖率时必须使用；不要用RAG命中片段数推断文档总数。",
+                Map.of("question", "用户关于文档目录的问题，可选",
+                        "knowledgeBaseId", "知识库ID，默认default"),
+                Set.of(), false, "document", false);
         register("text-summarize", "对文本进行摘要。",
                 Map.of("content", "待摘要文本", "maxLength", "摘要最大长度，默认300", "model", "可选模型代码"),
                 Set.of("content"), false, "text", false);
@@ -48,6 +54,9 @@ public class AgentToolRegistry {
                 Set.of("content"), false, "text", false);
         register("text-correct", "对文本进行纠错、润色或改写。",
                 Map.of("content", "待处理文本", "instruction", "纠错/润色/改写要求", "model", "可选模型代码"),
+                Set.of("content"), false, "text", false);
+        register("document-proofread", "逐字校对指定文档正文，统计明确错别字并逐项给出原词、正确词、上下文和原因。用户询问错别字数量或要求校对时优先使用。",
+                Map.of("content", "必须忠实校对的文档原文", "question", "用户的校对问题", "model", "可选模型代码"),
                 Set.of("content"), false, "text", false);
         register("file-download-url", "生成文件预签名下载地址。",
                 Map.of("bucketName", "存储桶名称，可选", "objectName", "对象名称，必填"),
@@ -99,6 +108,7 @@ public class AgentToolRegistry {
         return tools.get(name);
     }
 
+    // 返回全部工具定义清单，供规划器/反思器在提示词中列举可用工具。
     public List<AgentToolDefinition> list() {
         return new ArrayList<>(tools.values());
     }
@@ -107,6 +117,7 @@ public class AgentToolRegistry {
         return tools.containsKey(name);
     }
 
+    // 注册单个工具：把参数说明转换成带类型推断、默认值、枚举约束和数值范围的参数 Schema 后写入工具表。
     private void register(String name, String description, Map<String, String> parameters, Set<String> requiredParameters,
                           boolean destructive, String category, boolean requiresUserAction) {
         Map<String, AgentToolParameterDefinition> parameterSchema = new LinkedHashMap<>();
@@ -128,6 +139,7 @@ public class AgentToolRegistry {
                 destructive, category, requiresUserAction, destructive ? "high" : "low"));
     }
 
+    // 为枚举型参数提供可选值约束（如 rerankStrategy、writeMode），用于前端渲染与参数校验。
     private List<Object> allowedValues(String parameterName) {
         return switch (parameterName) {
             case "rerankStrategy" -> List.of("HYBRID", "VECTOR", "BM25");
@@ -157,6 +169,7 @@ public class AgentToolRegistry {
         return null;
     }
 
+    // 按参数名推断类型：topK/count/maxLength 为整数，布尔类参数为 boolean，其余默认 string。
     private String inferType(String parameterName) {
         if (Set.of("topK", "count", "maxLength").contains(parameterName)) {
             return "integer";
@@ -167,6 +180,7 @@ public class AgentToolRegistry {
         return "string";
     }
 
+    // 为已知参数名提供默认值（如 topK=5、count=8、maxLength=300），未命中返回 null。
     private Object defaultValue(String parameterName) {
         return switch (parameterName) {
             case "topK" -> 5;

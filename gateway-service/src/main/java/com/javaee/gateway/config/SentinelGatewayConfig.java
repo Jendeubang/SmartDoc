@@ -19,13 +19,20 @@ import reactor.core.publisher.Mono;
 @Configuration
 public class SentinelGatewayConfig {
 
-    /** 默认路由: 10 req/s, 突发 20 */
-    public static final int DEFAULT_REPLENISH_RATE = 10;
-    public static final int DEFAULT_BURST_CAPACITY = 20;
+    /**
+     * 常规页面接口：30 req/s，突发 60。
+     * 打开一个文档会并行请求详情、协作者和预览资源，10/s 容易让正常页面请求互相抢占令牌。
+     */
+    public static final int DEFAULT_REPLENISH_RATE = 30;
+    public static final int DEFAULT_BURST_CAPACITY = 60;
 
     /** AI 路由: 5 req/s, 突发 10（大模型调用昂贵） */
     public static final int AI_REPLENISH_RATE = 5;
     public static final int AI_BURST_CAPACITY = 10;
+
+    /** AI 轮询、模型列表和观测指标：不与模型生成争抢配额。 */
+    public static final int AI_READ_REPLENISH_RATE = 30;
+    public static final int AI_READ_BURST_CAPACITY = 60;
 
     // ── 限流器 ──────────────────────────────────────────────
 
@@ -38,6 +45,11 @@ public class SentinelGatewayConfig {
     @Bean("aiRateLimiter")
     public RedisRateLimiter aiRateLimiter() {
         return new RedisRateLimiter(AI_REPLENISH_RATE, AI_BURST_CAPACITY);
+    }
+
+    @Bean("aiReadRateLimiter")
+    public RedisRateLimiter aiReadRateLimiter() {
+        return new RedisRateLimiter(AI_READ_REPLENISH_RATE, AI_READ_BURST_CAPACITY);
     }
 
     // ── Key 解析器 ──────────────────────────────────────────
@@ -61,12 +73,20 @@ public class SentinelGatewayConfig {
         };
     }
 
-    /** 按用户 ID 限流 */
+    /** 已登录请求按用户 ID 限流；匿名请求退化为按 IP 限流。 */
     @Bean("userKeyResolver")
     public KeyResolver userKeyResolver() {
         return exchange -> {
             String userId = exchange.getRequest().getHeaders().getFirst("X-User-Id");
-            String key = (userId != null) ? "rl:u:" + userId : "rl:anonymous";
+            if (userId != null && !userId.isBlank()) {
+                return Mono.just("rl:u:" + userId);
+            }
+            String forwarded = exchange.getRequest().getHeaders().getFirst("X-Forwarded-For");
+            if (forwarded != null && !forwarded.isBlank()) {
+                return Mono.just("rl:ip:" + forwarded.split(",")[0].trim());
+            }
+            var remote = exchange.getRequest().getRemoteAddress();
+            String key = remote != null ? "rl:ip:" + remote.getAddress().getHostAddress() : "rl:anonymous";
             return Mono.just(key);
         };
     }

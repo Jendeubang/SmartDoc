@@ -1,0 +1,25 @@
+{
+  "generatedAt": "2026-09-19T09:56:39.425334+00:00",
+  "dataset": "evaluation\\datasets\\rag_qa_1000.synthetic.jsonl",
+  "baseUrl": "http://localhost:8080",
+  "strategy": "HYBRID",
+  "topK": 5,
+  "totalCases": 1000,
+  "requestErrors": 0,
+  "recallAt1": 0.973,
+  "recallAt3": 0.979,
+  "recallAt5": 0.98,
+  "mrrAt5": 0.97625,
+  "sequentialLatencyMs": {
+    "count": 1000,
+    "average": 2776.57,
+    "p50": 2633.0,
+    "p95": 3274.8,
+    "p99": 3713.32
+  },
+  "notes": [
+    "Latency is sequential evaluation latency, not a concurrency benchmark.",
+    "Request errors count as misses in Recall and MRR denominators.",
+    "Token values are never written to output files."
+  ]
+}

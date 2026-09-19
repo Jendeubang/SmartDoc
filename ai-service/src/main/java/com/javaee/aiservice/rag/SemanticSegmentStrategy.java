@@ -39,6 +39,7 @@ public class SemanticSegmentStrategy implements SegmentStrategy {
         this.similarityThreshold = similarityThreshold;
     }
 
+    // 语义分段主流程：拆句 -> 按相似度聚类成组 -> 生成分段并串联相邻分块链接
     @Override
     public List<Segment> segment(String documentId, String content) {
         log.info("执行语义分段: documentId={}, targetChunkSize={}, threshold={}",
@@ -103,6 +104,7 @@ public class SemanticSegmentStrategy implements SegmentStrategy {
         return segments;
     }
 
+    // 将文档按段落与句末标点拆分成句子，并记录每个句子的字符偏移
     private List<Sentence> splitIntoSentences(String content) {
         List<Sentence> sentences = new ArrayList<>();
 
@@ -142,6 +144,7 @@ public class SemanticSegmentStrategy implements SegmentStrategy {
         return sentences;
     }
 
+    // 用 Embedding 余弦相似度把语义相近的句子聚到同一分组
     private List<SentenceGroup> groupSentencesBySemantic(List<Sentence> sentences) {
         List<SentenceGroup> groups = new ArrayList<>();
 
@@ -175,6 +178,7 @@ public class SemanticSegmentStrategy implements SegmentStrategy {
         return groups;
     }
 
+    // 计算两个向量的余弦相似度，用于判断句子间语义相近程度
     private float cosineSimilarity(float[] a, float[] b) {
         if (a.length != b.length) {
             return 0.0f;
@@ -197,6 +201,7 @@ public class SemanticSegmentStrategy implements SegmentStrategy {
         return dotProduct / (float)(Math.sqrt(normA) * Math.sqrt(normB));
     }
 
+    // 将分组内的句子拼接为一个分段正文
     private String buildSegmentContent(SentenceGroup group) {
         StringBuilder sb = new StringBuilder();
         for (Sentence sentence : group.getSentences()) {
