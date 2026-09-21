@@ -1,0 +1,366 @@
+# ============================================================
+# DocAI 全栈一键启动
+# 用法：
+#   1. 构建镜像：docker compose build
+#   2. 启动全部：docker compose up -d
+#   3. 查看日志：docker compose logs -f
+#   4. 停止全部：docker compose down -v
+# ============================================================
+
+services:
+  # ──────────── 基础设施 ────────────
+
+  mysql:
+    image: mysql:8.0
+    container_name: docai-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: doc_ai
+    command: --max-connections=500 --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./init-db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./init-db/migrations:/opt/smartdoc/migrations:ro
+    expose:
+      - "3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits: { cpus: "1.5", memory: 1536M }
+    security_opt: ["no-new-privileges:true"]
+
+  redis:
+    # Redis Stack 内置 RediSearch，供 Spring AI RedisVectorStore 创建 HNSW 向量索引。
+    image: redis/redis-stack-server:7.2.0-v20
+    container_name: docai-redis
+    restart: always
+    environment:
+      REDIS_ARGS: --appendonly yes
+    volumes:
+      - redis-data:/data
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits: { cpus: "0.75", memory: 768M }
+    security_opt: ["no-new-privileges:true"]
+
+  rabbitmq:
+    image: rabbitmq:3.8-management
+    container_name: docai-rabbitmq
+    restart: always
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+    expose:
+      - "5672"
+      - "15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 1024M }
+    security_opt: ["no-new-privileges:true"]
+
+  minio:
+    image: minio/minio:RELEASE.2024-06-13T22-53-53Z
+    container_name: docai-minio
+    restart: always
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    expose:
+      - "9000"
+      - "9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 1024M }
+    security_opt: ["no-new-privileges:true"]
+
+  clamav:
+    image: clamav/clamav:1.4
+    container_name: smartdoc-clamav
+    restart: always
+    expose:
+      - "3310"
+    volumes:
+      - clamav-data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 1536M }
+    security_opt: ["no-new-privileges:true"]
+
+  # ──────────── 业务服务 ────────────
+
+  user-service:
+    build:
+      context: ./user-service
+      dockerfile: Dockerfile
+    container_name: docai-user
+    restart: always
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # 数据库
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/doc_ai?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
+      # Redis
+      SPRING_DATA_REDIS_HOST: redis
+      # 禁用 Nacos
+      SPRING_CLOUD_NACOS_DISCOVERY_ENABLED: "false"
+      SPRING_CLOUD_NACOS_CONFIG_ENABLED: "false"
+      JWT_KEYS: ${JWT_KEYS}
+      JWT_ACTIVE_KID: ${JWT_ACTIVE_KID}
+      SECURITY_INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
+      SECURITY_CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      SECURITY_PASSWORD_RESET_DELIVERY_URL: ${PASSWORD_RESET_DELIVERY_URL:-}
+      SECURITY_PASSWORD_RESET_DELIVERY_TOKEN: ${PASSWORD_RESET_DELIVERY_TOKEN:-}
+      SECURITY_PASSWORD_RESET_FRONTEND_URL: ${PASSWORD_RESET_FRONTEND_URL:-http://localhost:5173/reset-password}
+      SMARTDOC_BOOTSTRAP_ADMIN_USERNAME: ${SMARTDOC_BOOTSTRAP_ADMIN_USERNAME:-}
+      SMARTDOC_BOOTSTRAP_ADMIN_PASSWORD: ${SMARTDOC_BOOTSTRAP_ADMIN_PASSWORD:-}
+      SMARTDOC_BOOTSTRAP_ADMIN_EMAIL: ${SMARTDOC_BOOTSTRAP_ADMIN_EMAIL:-}
+      SMARTDOC_BOOTSTRAP_ADMIN_PHONE: ${SMARTDOC_BOOTSTRAP_ADMIN_PHONE:-}
+    expose:
+      - "8081"
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 768M }
+    security_opt: ["no-new-privileges:true"]
+
+  file-service:
+    build:
+      context: ./file-service
+      dockerfile: Dockerfile
+    container_name: docai-file
+    restart: always
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      clamav:
+        condition: service_healthy
+    environment:
+      # 数据库
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/doc_ai?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
+      # Redis
+      SPRING_DATA_REDIS_HOST: redis
+      # RabbitMQ
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USERNAME}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      # MinIO
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      # 文档服务地址（Feign 调用）
+      DOCUMENT_SERVICE_URL: http://document-service:8084
+      # 禁用 Nacos
+      SPRING_CLOUD_NACOS_DISCOVERY_ENABLED: "false"
+      JWT_KEYS: ${JWT_KEYS}
+      JWT_ACTIVE_KID: ${JWT_ACTIVE_KID}
+      SECURITY_INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
+      # Fail closed by default: uploads are rejected when ClamAV scanning is disabled or unavailable.
+      SECURITY_MALWARE_SCAN_ENABLED: ${SECURITY_MALWARE_SCAN_ENABLED:-true}
+      SECURITY_MALWARE_SCAN_REQUIRED: ${SECURITY_MALWARE_SCAN_REQUIRED:-true}
+      SECURITY_MALWARE_SCAN_HOST: clamav
+    expose:
+      - "8082"
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 1024M }
+    security_opt: ["no-new-privileges:true"]
+
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: docai-ai
+    restart: always
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      # 数据库
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/doc_ai?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
+      # Redis
+      SPRING_DATA_REDIS_HOST: redis
+      # RabbitMQ
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USERNAME}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      # MinIO
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: doc-ai
+      # DeepSeek API
+      SPRING_AI_OPENAI_API_KEY: ${OPENAI_API_KEY}
+      SPRING_AI_OPENAI_BASE_URL: https://api.deepseek.com
+      # 用户自带模型密钥的服务端加密主密钥，只从 .env/Secret 注入，禁止写入代码仓库
+      SMARTDOC_AI_CREDENTIAL_MASTER_KEY: ${SMARTDOC_AI_CREDENTIAL_MASTER_KEY:-}
+      # DashScope Qwen3-ASR-Flash for uploaded meeting recordings
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      # DashScope text-embedding-v4 for RAG vectorization
+      DASHSCOPE_EMBEDDING_BASE_URL: ${DASHSCOPE_EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode}
+      DASHSCOPE_EMBEDDING_MODEL: ${DASHSCOPE_EMBEDDING_MODEL:-text-embedding-v4}
+      DASHSCOPE_EMBEDDING_DIMENSIONS: ${DASHSCOPE_EMBEDDING_DIMENSIONS:-1536}
+      DASHSCOPE_ASR_BASE_URL: ${DASHSCOPE_ASR_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions}
+      DASHSCOPE_ASR_MODEL: ${DASHSCOPE_ASR_MODEL:-qwen3-asr-flash}
+      DOCUMENT_SERVICE_URL: http://document-service:8084
+      # 禁用 Nacos
+      SPRING_CLOUD_NACOS_DISCOVERY_ENABLED: "false"
+      SPRING_CLOUD_NACOS_CONFIG_ENABLED: "false"
+      JWT_KEYS: ${JWT_KEYS}
+      JWT_ACTIVE_KID: ${JWT_ACTIVE_KID}
+      SECURITY_INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
+      SECURITY_CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+    expose:
+      - "8083"
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 1536M }
+    security_opt: ["no-new-privileges:true"]
+
+  document-service:
+    build:
+      context: ./document-service
+      dockerfile: Dockerfile
+    container_name: docai-document
+    restart: always
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      # 数据库
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/doc_ai?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
+      # Redis
+      SPRING_DATA_REDIS_HOST: redis
+      # RabbitMQ
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USERNAME}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      # MinIO
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      # 文件服务地址（容器网络内使用服务名）
+      FILE_SERVICE_URL: http://file-service:8082
+      # 用户服务地址（用于校验协作者）
+      USER_SERVICE_URL: http://user-service:8081
+      # 禁用 Nacos
+      SPRING_CLOUD_NACOS_DISCOVERY_ENABLED: "false"
+      JWT_KEYS: ${JWT_KEYS}
+      JWT_ACTIVE_KID: ${JWT_ACTIVE_KID}
+      SECURITY_INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
+      SECURITY_CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+    expose:
+      - "8084"
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 1536M }
+    security_opt: ["no-new-privileges:true"]
+
+  gateway-service:
+    build:
+      context: ./gateway-service
+      dockerfile: Dockerfile
+    container_name: docai-gateway
+    restart: always
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      file-service:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
+      document-service:
+        condition: service_healthy
+    environment:
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USERNAME}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      # 路由指向各服务容器名
+      GATEWAY_ROUTE_USER_URI: http://user-service:8081
+      GATEWAY_ROUTE_FILE_URI: http://file-service:8082
+      GATEWAY_ROUTE_AI_URI: http://ai-service:8083
+      GATEWAY_ROUTE_AI_WS_URI: http://ai-service:8083
+      GATEWAY_ROUTE_DOCUMENT_URI: http://document-service:8084
+      # 禁用 Nacos
+      SPRING_CLOUD_NACOS_DISCOVERY_ENABLED: "false"
+      SPRING_CLOUD_NACOS_CONFIG_ENABLED: "false"
+      JWT_KEYS: ${JWT_KEYS}
+      JWT_ACTIVE_KID: ${JWT_ACTIVE_KID}
+      # 由网关注入到下游服务，供下游验证可信身份头；浏览器无法伪造该令牌。
+      SECURITY_INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
+      SECURITY_CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+    expose:
+      - "8080"
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 768M }
+    security_opt: ["no-new-privileges:true"]
+
+volumes:
+  mysql-data:
+  redis-data:
+  minio-data:
+  clamav-data:

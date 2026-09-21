@@ -1,0 +1,347 @@
+package com.javaee.aiservice.controller;
+
+/**
+ * 【简历：统一 AI 服务入口】
+ * 提供多模型支持（DashScope、OpenAI 等）的统一 AI 能力调用入口，
+ * 对接文档摘要、纠错、关键词提取等同步 AI 任务。
+ */
+
+import com.javaee.aiservice.dto.*;
+import com.javaee.aiservice.factory.AIServiceFactory;
+import com.javaee.aiservice.model.ModelType;
+import com.javaee.aiservice.security.RequestUserContext;
+import com.javaee.aiservice.provider.UserAIProviderCredentialService;
+import com.javaee.aiservice.service.*;
+import com.javaee.aiservice.vo.*;
+import com.javaee.common.model.Result;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.InputStream;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+/**
+ * AI控制器
+ * 提供AI处理和文件管理相关的REST API接口，支持多模型选择
+ */
+// 类职责：AI 接口控制器，对应简历第4条「AI 智能对话及文档分析」——
+// 暴露 /summarize、/keywords、/correct、/meeting-minutes/audio 等 REST 端点。
+@RestController
+@RequestMapping("/api/ai")
+@Tag(name = "AI处理", description = "文档摘要、关键词提取、文档分析等AI处理接口")
+public class AIController {
+
+    @Autowired
+    private AIService aiService;
+
+    @Autowired
+    private AIServiceFactory aiServiceFactory;
+
+    @Autowired
+    private FileUploadService fileUploadService;
+
+    @Autowired
+    private FileDownloadService fileDownloadService;
+
+    @Autowired
+    private FileDeleteService fileDeleteService;
+
+    @Autowired
+    private FileVersionService fileVersionService;
+
+    @Autowired
+    private RecycleBinService recycleBinService;
+
+    @Autowired
+    private RequestUserContext requestUserContext;
+
+    @Autowired
+    private SpeechTranscriptionService speechTranscriptionService;
+
+    @Autowired
+    private UserAIProviderCredentialService userAIProviderCredentialService;
+
+    @GetMapping("/provider-credentials")
+    @Operation(summary = "获取当前用户的模型配置", description = "只返回服务商、模型和脱敏后的 Key 信息，不返回明文 API Key")
+    public Result<java.util.List<UserAIProviderCredentialVO>> listProviderCredentials() {
+        return Result.success(userAIProviderCredentialService.list());
+    }
+
+    @PostMapping("/provider-credentials/test")
+    @Operation(summary = "测试用户模型配置")
+    public Result<Map<String, Object>> testProviderCredential(@RequestBody UserAIProviderCredentialRequest request) {
+        return Result.success(userAIProviderCredentialService.test(request));
+    }
+
+    @PostMapping("/provider-credentials")
+    @Operation(summary = "保存用户模型配置")
+    public Result<UserAIProviderCredentialVO> saveProviderCredential(@RequestBody UserAIProviderCredentialRequest request) {
+        return Result.success(userAIProviderCredentialService.save(request));
+    }
+
+    @DeleteMapping("/provider-credentials/{id}")
+    @Operation(summary = "删除用户模型配置")
+    public Result<Void> deleteProviderCredential(@PathVariable String id) {
+        userAIProviderCredentialService.delete(id);
+        return Result.success();
+    }
+
+    @PutMapping("/provider-credentials/{id}/default")
+    @Operation(summary = "设置默认用户模型")
+    public Result<UserAIProviderCredentialVO> setDefaultProviderCredential(@PathVariable String id) {
+        return Result.success(userAIProviderCredentialService.setDefault(id));
+    }
+
+    // 会议纪要生成：上传音频 → ASR 转写 → 大模型整理为结构化会议纪要。
+    @PostMapping(value = "/meeting-minutes/audio", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "录音生成会议纪要", description = "上传音频后先调用 ASR 转写服务，再由 DeepSeek 整理为结构化会议纪要")
+    public Result<Map<String, String>> createMeetingMinutesFromAudio(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(required = false) String title,
+            @RequestParam(required = false, defaultValue = "auto") String language) {
+        SpeechTranscriptionService.MeetingMinutes result = speechTranscriptionService.transcribeAndSummarize(file, title, language);
+        Map<String, String> payload = new HashMap<>();
+        payload.put("transcript", result.transcript());
+        payload.put("minutes", result.minutes());
+        payload.put("asrModel", result.asrModel());
+        return Result.success(payload);
+    }
+
+    /**
+     * 获取可用模型列表
+     * @return 模型列表
+     */
+    // 列出所有可用 AI 模型及各自的可用状态。
+    @GetMapping("/models")
+    @Operation(summary = "获取可用模型列表", description = "获取所有可用的AI模型列表及其详细信息")
+    public Result<java.util.List<Map<String, Object>>> getModels() {
+        java.util.List<Map<String, Object>> models = aiServiceFactory.getAllServices().entrySet().stream()
+            .map(entry -> {
+                Map<String, Object> model = new HashMap<>();
+                model.put("code", entry.getKey().getCode());
+                model.put("name", entry.getKey().getName());
+                model.put("provider", entry.getKey().getProvider());
+                model.put("available", entry.getValue().isAvailable());
+                return model;
+            })
+            .collect(Collectors.toList());
+        // 将当前用户的自定义模型追加到模型选择器；API Key 仍只保存在服务端。
+        userAIProviderCredentialService.list().forEach(item -> {
+            Map<String, Object> custom = new HashMap<>();
+            custom.put("code", item.model());
+            custom.put("name", item.provider() + " · " + item.model());
+            custom.put("provider", item.provider());
+            custom.put("available", "ACTIVE".equalsIgnoreCase(item.status()));
+            custom.put("userOwned", true);
+            custom.put("defaultCredential", item.defaultCredential());
+            models.removeIf(existing -> item.model().equals(existing.get("code")));
+            models.add(custom);
+        });
+        return Result.success(models);
+    }
+
+    /**
+     * 文档摘要
+     * @param dto 摘要请求参数
+     * @param model 模型代码（可选）
+     * @return 摘要结果
+     */
+    @PostMapping("/summarize")
+    @Operation(summary = "文档摘要", description = "对文档进行智能摘要，支持选择不同模型：qwen3.6-plus, glm-5, kimi-k2.5, MiniMax-M2.5")
+    public Result<TextSummarizeVO> summarize(
+            @RequestBody TextSummarizeDTO dto,
+            @Parameter(description = "选择AI模型（可选，默认qwen3.6-plus）", 
+                      in = ParameterIn.QUERY,
+                      schema = @Schema(allowableValues = {"qwen3.6-plus", "glm-5", "kimi-k2.5", "MiniMax-M2.5"}, 
+                                        defaultValue = "qwen3.6-plus"))
+            @RequestParam(required = false) String model) {
+        TextSummarizeVO vo = aiService.summarize(dto, model);
+        return Result.success(vo);
+    }
+
+    /**
+     * 关键词提取
+     * @param dto 关键词提取请求参数
+     * @param model 模型代码（可选）
+     * @return 关键词结果
+     */
+    @PostMapping("/keywords")
+    @Operation(summary = "关键词提取", description = "从文档中提取关键词，支持选择不同模型：qwen3.6-plus, glm-5, kimi-k2.5, MiniMax-M2.5")
+    public Result<KeywordExtractVO> extractKeywords(
+            @RequestBody KeywordExtractDTO dto,
+            @Parameter(description = "选择AI模型（可选，默认qwen3.6-plus）", 
+                      in = ParameterIn.QUERY,
+                      schema = @Schema(allowableValues = {"qwen3.6-plus", "glm-5", "kimi-k2.5", "MiniMax-M2.5"}, 
+                                        defaultValue = "qwen3.6-plus"))
+            @RequestParam(required = false) String model) {
+        KeywordExtractVO vo = aiService.extractKeywords(dto, model);
+        return Result.success(vo);
+    }
+
+    /**
+     * 文档分析
+     * @param dto 文档分析请求参数
+     * @return 分析结果
+     */
+    @PostMapping("/analyze")
+    @Operation(summary = "文档分析", description = "对文档进行深度分析")
+    public Result<TextAnalyzeVO> analyze(@RequestBody TextAnalyzeDTO dto) {
+        TextAnalyzeVO vo = aiService.analyze(dto);
+        return Result.success(vo);
+    }
+
+    /**
+     * 文档纠错
+     * @param dto 纠错请求参数
+     * @param model 模型代码（可选）
+     * @return 纠错结果
+     */
+    @PostMapping("/correct")
+    @Operation(summary = "文档纠错", description = "对文档进行AI智能纠错，支持选择不同模型：deepseek-chat, glm-5, kimi-k2.5, MiniMax-M2.5")
+    public Result<TextCorrectVO> correct(
+            @RequestBody TextAnalyzeDTO dto,
+            @Parameter(description = "选择AI模型（可选，默认DeepSeek Chat）",
+                      in = ParameterIn.QUERY,
+                      schema = @Schema(allowableValues = {"deepseek-chat", "glm-5", "kimi-k2.5", "MiniMax-M2.5"},
+                                        defaultValue = "deepseek-chat"))
+            @RequestParam(required = false) String model) {
+        TextCorrectVO vo = aiService.correct(dto, model);
+        return Result.success(vo);
+    }
+
+    /**
+     * 文件上传接口
+     * @param file 上传的文件
+     * @param dto 上传参数
+     * @return 文件上传结果
+     */
+    @PostMapping("/upload")
+    @Operation(summary = "文件上传", description = "将文件上传至MinIO服务器")
+    public Result<FileUploadVO> uploadFile(
+            @Parameter(description = "上传的文件") @RequestParam("file") MultipartFile file,
+            FileUploadDTO dto) {
+        FileUploadVO vo = fileUploadService.uploadFile(file, dto);
+        return Result.success(vo);
+    }
+
+    /**
+     * 文件下载接口（直接下载）
+     * @param dto 下载参数
+     * @return 文件流
+     */
+    @GetMapping("/download")
+    @Operation(summary = "文件下载", description = "从MinIO服务器下载文件")
+    public ResponseEntity<org.springframework.core.io.Resource> downloadFile(FileDownloadDTO dto) {
+        try {
+            InputStream inputStream = fileDownloadService.downloadFile(dto);
+            
+            String filename = dto.getObjectName();
+            if (filename.contains("/")) {
+                filename = filename.substring(filename.lastIndexOf("/") + 1);
+            }
+            
+            org.springframework.core.io.InputStreamResource resource = 
+                new org.springframework.core.io.InputStreamResource(inputStream);
+            
+            return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, 
+                    "attachment; filename=\"" + URLEncoder.encode(filename, StandardCharsets.UTF_8) + "\"")
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .body(resource);
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
+     * 获取文件访问URL接口
+     * @param dto 下载参数
+     * @return 文件访问URL
+     */
+    @GetMapping("/download/url")
+    @Operation(summary = "获取文件URL", description = "获取MinIO中文件的预签名访问URL")
+    public Result<FileDownloadVO> getFileUrl(FileDownloadDTO dto) {
+        FileDownloadVO vo = fileDownloadService.getFileUrl(dto);
+        return Result.success(vo);
+    }
+
+    /**
+     * 删除文件接口
+     * @param dto 删除参数
+     * @return 删除结果
+     */
+    @DeleteMapping("/files")
+    @Operation(summary = "删除文件", description = "删除文件，支持确认删除和回收站")
+    public Result<FileDeleteVO> deleteFile(FileDeleteDTO dto) {
+        if (dto.getConfirmationToken() == null || dto.getConfirmationToken().isBlank()) {
+            dto.setRequireConfirmation(true);
+        }
+        FileDeleteVO vo = fileDeleteService.deleteFile(dto, requestUserContext.getRequiredUserId());
+        return Result.success(vo);
+    }
+
+    /**
+     * 恢复文件接口
+     * @param dto 恢复参数
+     * @return 恢复结果
+     */
+    @PostMapping("/files/restore")
+    @Operation(summary = "恢复文件", description = "从回收站恢复文件")
+    public Result<FileRestoreVO> restoreFile(@RequestBody FileRestoreDTO dto) {
+        FileRestoreVO vo = fileDeleteService.restoreFile(dto);
+        return Result.success(vo);
+    }
+
+    /**
+     * 获取回收站文件列表接口
+     * @param bucketName 存储桶名称
+     * @return 回收站文件列表
+     */
+    @GetMapping("/recycle-bin")
+    @Operation(summary = "回收站列表", description = "获取回收站中的文件列表")
+    public Result<RecycleBinVO> listRecycleBin(
+            @Parameter(description = "存储桶名称（可选）") @RequestParam(required = false) String bucketName) {
+        RecycleBinVO vo = recycleBinService.listRecycleBin(bucketName, requestUserContext.getRequiredUserId());
+        return Result.success(vo);
+    }
+
+    /**
+     * 获取文件版本列表接口
+     * @param dto 查询参数
+     * @return 文件版本信息
+     */
+    @GetMapping("/files/versions")
+    @Operation(summary = "文件版本列表", description = "获取文件的所有版本")
+    public Result<FileVersionVO> getVersions(FileVersionDTO dto) {
+        FileVersionVO vo = fileVersionService.getVersions(dto);
+        return Result.success(vo);
+    }
+
+    /**
+     * 切换文件版本接口
+     * @param dto 切换参数
+     * @return 切换后的版本信息
+     */
+    @PostMapping("/files/versions/switch")
+    @Operation(summary = "切换文件版本", description = "切换到指定版本")
+    public Result<FileVersionVO.VersionInfo> switchVersion(@RequestBody FileVersionSwitchDTO dto) {
+        if (!requestUserContext.isAdmin()) {
+            throw new SecurityException("切换文件版本属于高风险操作，请通过Agent二次确认或管理员接口执行");
+        }
+        FileVersionVO.VersionInfo vo = fileVersionService.switchVersion(dto);
+        return Result.success(vo);
+    }
+}

@@ -1,0 +1,5 @@
+# 复制本文件为 rag_qa_v1.jsonl；删除注释行后，每行保留一条合法 JSON。
+# expectedDocumentIds 必须替换为上传且完成索引的真实文档 ID。
+{"id":"qa-0001","question":"员工试用期最长可以约定多久？","knowledgeBaseId":"default","expectedDocumentIds":["replace-with-real-document-id"],"referenceAnswer":"对应员工制度中的试用期条款。","category":"人事制度","difficulty":"easy"}
+{"id":"qa-0002","question":"项目延期时需要由谁审批并记录风险？","knowledgeBaseId":"default","expectedDocumentIds":["replace-with-real-document-id"],"referenceAnswer":"对应项目管理制度中的变更与风险流程。","category":"项目管理","difficulty":"medium"}
+{"id":"qa-0003","question":"报销申请需要附上哪些材料？","knowledgeBaseId":"default","expectedDocumentIds":["replace-with-real-document-id"],"referenceAnswer":"对应财务报销制度的附件要求。","category":"财务制度","difficulty":"easy"}

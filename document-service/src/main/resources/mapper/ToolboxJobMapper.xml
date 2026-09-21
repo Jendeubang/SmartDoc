@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.javaee.documentservice.mapper.ToolboxJobMapper">
+
+    <select id="selectOwned" resultType="com.javaee.documentservice.entity.ToolboxJob">
+        SELECT *
+        FROM toolbox_job
+        WHERE job_id = #{jobId}
+          AND user_id = #{userId}
+          AND organization_id = #{organizationId}
+    </select>
+
+    <select id="listOwned" resultType="com.javaee.documentservice.entity.ToolboxJob">
+        SELECT *
+        FROM toolbox_job
+        WHERE user_id = #{userId}
+          AND organization_id = #{organizationId}
+        ORDER BY created_at DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectByUser" resultType="com.javaee.documentservice.entity.ToolboxJob">
+        SELECT *
+        FROM toolbox_job
+        WHERE job_id = #{jobId}
+          AND user_id = #{userId}
+    </select>
+
+    <select id="listByUser" resultType="com.javaee.documentservice.entity.ToolboxJob">
+        SELECT *
+        FROM toolbox_job
+        WHERE user_id = #{userId}
+        ORDER BY created_at DESC
+        LIMIT #{limit}
+    </select>
+
+    <update id="claimPending">
+        UPDATE toolbox_job
+        SET status = 'PROCESSING',
+            progress = CASE WHEN progress &lt; 5 THEN 5 ELSE progress END,
+            message = 'Processing task',
+            started_at = COALESCE(started_at, CURRENT_TIMESTAMP(3)),
+            updated_at = CURRENT_TIMESTAMP(3)
+        WHERE job_id = #{jobId}
+          AND (status = 'PENDING'
+               OR (status = 'PROCESSING' AND updated_at &lt; #{staleBefore}))
+    </update>
+
+    <update id="markSuccess">
+        UPDATE toolbox_job
+        SET status = 'SUCCESS',
+            progress = 100,
+            message = #{message},
+            result_object_key = #{resultObjectKey},
+            file_name = #{fileName},
+            content_type = #{contentType},
+            finished_at = CURRENT_TIMESTAMP(3),
+            updated_at = CURRENT_TIMESTAMP(3),
+            expires_at = DATE_ADD(CURRENT_TIMESTAMP(3), INTERVAL 7 DAY)
+        WHERE job_id = #{jobId}
+          AND status = 'PROCESSING'
+    </update>
+
+    <update id="markFailure">
+        UPDATE toolbox_job
+        SET status = 'FAILED',
+            progress = 100,
+            message = #{message},
+            finished_at = CURRENT_TIMESTAMP(3),
+            updated_at = CURRENT_TIMESTAMP(3)
+        WHERE job_id = #{jobId}
+          AND status = 'PROCESSING'
+    </update>
+
+    <update id="updateProgress">
+        UPDATE toolbox_job
+        SET progress = #{progress},
+            message = #{message},
+            updated_at = CURRENT_TIMESTAMP(3)
+        WHERE job_id = #{jobId}
+          AND status = 'PROCESSING'
+    </update>
+
+    <update id="retryFailed">
+        UPDATE toolbox_job
+        SET status = 'PENDING',
+            progress = 5,
+            message = 'Retry queued',
+            retry_count = retry_count + 1,
+            result_object_key = NULL,
+            file_name = NULL,
+            content_type = NULL,
+            finished_at = NULL,
+            expires_at = NULL,
+            updated_at = CURRENT_TIMESTAMP(3)
+        WHERE job_id = #{jobId}
+          AND user_id = #{userId}
+          AND organization_id = #{organizationId}
+          AND status = 'FAILED'
+    </update>
+
+    <update id="resetStaleProcessing">
+        UPDATE toolbox_job
+        SET status = 'PENDING',
+            progress = 5,
+            message = 'Task recovered after worker restart',
+            started_at = NULL,
+            updated_at = #{staleBefore}
+        WHERE organization_id = #{organizationId}
+          AND status = 'PROCESSING'
+          AND updated_at &lt; #{staleBefore}
+    </update>
+
+    <update id="resetAllStaleProcessing">
+        UPDATE toolbox_job
+        SET status = 'PENDING',
+            progress = 5,
+            message = 'Task recovered after worker restart',
+            started_at = NULL,
+            updated_at = #{staleBefore}
+        WHERE status = 'PROCESSING'
+          AND updated_at &lt; #{staleBefore}
+    </update>
+
+    <update id="markExpired">
+        UPDATE toolbox_job
+        SET status = 'EXPIRED',
+            result_object_key = NULL,
+            message = 'Result expired',
+            updated_at = CURRENT_TIMESTAMP(3)
+        WHERE job_id = #{jobId}
+          AND status = 'SUCCESS'
+          AND expires_at IS NOT NULL
+          AND expires_at &lt;= #{now}
+    </update>
+
+    <select id="selectDispatchable" resultType="com.javaee.documentservice.entity.ToolboxJob">
+        SELECT *
+        FROM toolbox_job
+        WHERE status = 'PENDING'
+          AND updated_at &lt; #{before}
+        ORDER BY created_at ASC
+        LIMIT #{limit}
+    </select>
+
+    <update id="markDispatched">
+        UPDATE toolbox_job
+        SET updated_at = CURRENT_TIMESTAMP(3)
+        WHERE job_id = #{jobId}
+          AND status = 'PENDING'
+    </update>
+
+    <select id="selectExpired" resultType="com.javaee.documentservice.entity.ToolboxJob">
+        SELECT *
+        FROM toolbox_job
+        WHERE status = 'SUCCESS'
+          AND expires_at IS NOT NULL
+          AND expires_at &lt;= #{now}
+        ORDER BY expires_at ASC
+        LIMIT #{limit}
+    </select>
+
+</mapper>

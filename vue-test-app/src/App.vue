@@ -1,0 +1,35 @@
+<template>
+  <router-view />
+
+  <GlobalAiAssistant v-if="showAiAssistant" />
+</template>
+
+<script setup>
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
+import GlobalAiAssistant from './views/components/GlobalAiAssistant.vue'
+
+const route = useRoute()
+
+// 判断当前是否应该显示 AI 助理
+const showAiAssistant = computed(() => {
+  // 如果路由还没加载好，先不显示
+  if (!route.path) return false
+
+  // 定义不需要显示 AI 的黑名单路径
+  // 设置页应保持独立：避免全局 AI 助理在加载个人资料、模型配置时额外发起
+  // 会话/模型请求，造成设置页被无关的鉴权或限流提示干扰。
+  const hiddenPaths = [
+    '/login', '/register', '/auth', '/editor', '/morandi-preview',
+    '/profile', '/ai-settings'
+  ]
+
+  // 如果当前路径包含在黑名单里，就不显示
+  const isHidden = hiddenPaths.some(path => route.path.startsWith(path))
+
+  return !isHidden
+})
+</script>
+
+<style>
+</style>

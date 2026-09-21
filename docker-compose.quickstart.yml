@@ -1,0 +1,75 @@
+# Source-build override for a fresh Docker-only installation.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.quickstart.yml up -d --build
+
+services:
+  user-service:
+    build:
+      context: .
+      dockerfile: deploy/docker/backend.Dockerfile
+      args:
+        SERVICE_MODULE: user-service
+        SERVICE_JAR: user-service-1.0.0
+        SERVICE_PORT: "8081"
+        RUNTIME_TARGET: runtime-base
+
+  file-service:
+    build:
+      context: .
+      dockerfile: deploy/docker/backend.Dockerfile
+      args:
+        SERVICE_MODULE: file-service
+        SERVICE_JAR: file-service-1.0.0
+        SERVICE_PORT: "8082"
+        RUNTIME_TARGET: runtime-base
+
+  ai-service:
+    build:
+      context: .
+      dockerfile: deploy/docker/backend.Dockerfile
+      args:
+        SERVICE_MODULE: ai-service
+        SERVICE_JAR: ai-service-1.0.0
+        SERVICE_PORT: "8083"
+        RUNTIME_TARGET: runtime-base
+
+  document-service:
+    build:
+      context: .
+      dockerfile: deploy/docker/backend.Dockerfile
+      args:
+        SERVICE_MODULE: document-service
+        SERVICE_JAR: document-service-1.0.0
+        SERVICE_PORT: "8084"
+        RUNTIME_TARGET: document-runtime
+
+  gateway-service:
+    build:
+      context: .
+      dockerfile: deploy/docker/backend.Dockerfile
+      args:
+        SERVICE_MODULE: gateway-service
+        SERVICE_JAR: gateway-service-1.0.0
+        SERVICE_PORT: "8080"
+        RUNTIME_TARGET: runtime-base
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/nginx/Dockerfile
+    container_name: smartdoc-web
+    restart: always
+    depends_on:
+      gateway-service:
+        condition: service_healthy
+    ports:
+      - "${SMARTDOC_WEB_PORT:-8088}:80"
+    volumes:
+      - ./deploy/nginx/nginx.http.conf:/etc/nginx/conf.d/default.conf:ro
+    entrypoint: ["nginx", "-g", "daemon off;"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    security_opt:
+      - no-new-privileges:true

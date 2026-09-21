@@ -1,0 +1,201 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: ai-service
+  main:
+    allow-bean-definition-overriding: true
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/doc_ai?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 4
+      minimum-idle: 1
+      idle-timeout: 30000
+      max-lifetime: 300000
+      connection-timeout: 10000
+
+  # ── Spring AI 配置 ──────────────────────────────────────────
+  ai:
+    # 生成模型：DeepSeek Chat（OpenAI 兼容接口）
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      base-url: https://api.deepseek.com
+      chat:
+        options:
+          model: deepseek-chat
+      # 向量模型必须使用独立的 Embedding 服务。DeepSeek 当前不提供 Embedding API，
+      # 因此通过 OpenAI 兼容协议调用 DashScope text-embedding-v4。
+      embedding:
+        enabled: true
+        api-key: ${DASHSCOPE_API_KEY:}
+        # Spring AI 1.0.0-M4 会自动拼接 /v1/embeddings，因此此处不能重复写 /v1。
+        base-url: ${DASHSCOPE_EMBEDDING_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode}
+        options:
+          model: ${DASHSCOPE_EMBEDDING_MODEL:text-embedding-v4}
+          dimensions: ${DASHSCOPE_EMBEDDING_DIMENSIONS:1536}
+          encoding-format: float
+      image:
+        enabled: false
+
+    # DashScope 配置（Rerank 服务，暂用占位符）
+    dashscope:
+      api-key: ${DASHSCOPE_API_KEY:}
+      rerank:
+        enabled: false
+
+    # Redis VectorStore 配置
+    vectorstore:
+      redis:
+        index: doc-ai-vectors
+        prefix: "vector:"
+        initialize-schema: true
+
+  cloud:
+    compatibility-verifier:
+      enabled: false
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+        namespace: public
+        timeout: 30000
+      client:
+        namespace: public
+        timeout: 30000
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password:
+      database: 1
+      timeout: 10000
+      lettuce:
+        pool:
+          max-active: 8
+          max-wait: -1
+          max-idle: 8
+          min-idle: 0
+
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: ${RABBITMQ_USERNAME:}
+    password: ${RABBITMQ_PASSWORD:}
+    virtual-host: /
+
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 200MB
+      max-request-size: 200MB
+
+# ── AI 业务配置 ──────────────────────────────────────────────
+ai:
+  credentials:
+    master-key: ${SMARTDOC_AI_CREDENTIAL_MASTER_KEY:}
+  deepseek:
+    read-timeout-ms: ${DEEPSEEK_READ_TIMEOUT_MS:120000}
+  # DashScope Qwen3 ASR. DeepSeek only creates meeting minutes after transcription.
+  dashscope-asr:
+    base-url: ${DASHSCOPE_ASR_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions}
+    model: ${DASHSCOPE_ASR_MODEL:qwen3-asr-flash}
+    # Base64 audio must remain within DashScope's 10MB request limit.
+    max-inline-bytes: ${DASHSCOPE_ASR_MAX_INLINE_BYTES:7340032}
+  # 多模型配置（Spring AI 无法通过配置声明多 ChatModel bean，由 AIServiceFactory 编程式创建）
+  models:
+    glm-5:
+      api-key: ${OPENAI_API_KEY}
+      base-url: https://coding.dashscope.aliyuncs.com
+      model: glm-5
+      enabled: true
+    kimi-k2.5:
+      api-key: ${OPENAI_API_KEY}
+      base-url: https://coding.dashscope.aliyuncs.com
+      model: kimi-k2.5
+      enabled: true
+    MiniMax-M2.5:
+      api-key: ${OPENAI_API_KEY}
+      base-url: https://coding.dashscope.aliyuncs.com
+      model: MiniMax-M2.5
+      enabled: true
+  conversation:
+    max-messages: 100
+    expiry-hours: 24
+  agent:
+    reflection:
+      enabled: true
+  vector:
+    dimension: 1536
+    hnsw:
+      # Java 进程内 HNSW 加速层；未就绪或异常时自动回退 RedisVectorStore
+      enabled: ${SMARTDOC_HNSW_ENABLED:true}
+      m: 16
+      ef-construction: 200
+      ef: 128
+      max-items: 200000
+  aiops:
+    metrics:
+      retention-ms: 900000
+      persist-interval-ms: 60000
+    detection:
+      interval-ms: 60000
+      window-ms: 300000
+      latency-p95-threshold-ms: 5000
+      error-rate-threshold: 0.1
+      min-request-count: 10
+    alert:
+      cooldown-ms: 300000
+
+# MinIO 凭证（顶级键，供 minIOServiceImpl 的 ${MINIO_ACCESS_KEY} 解析）
+MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:}
+MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:}
+
+# MinIO配置
+minio:
+  endpoint: http://localhost:9000
+  access-key: ${MINIO_ACCESS_KEY:}
+  secret-key: ${MINIO_SECRET_KEY:}
+  bucket: doc-ai
+  bucket-permissions: "documents=admin,user;doc-ai=admin,user"
+  bucket-permission-default-allow: false
+  url:
+    expiry: 3600
+  recycle:
+    expiry-days: 7
+  delete:
+    confirmation-timeout: 300
+
+# 文档服务配置
+document:
+  service:
+    url: ${DOCUMENT_SERVICE_URL:http://localhost:8084}
+
+# 日志配置
+logging:
+  level:
+    com.javaee.aiservice: debug
+    org.springframework.ai: info
+    org.springframework.security: info
+
+# SpringDoc配置
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true

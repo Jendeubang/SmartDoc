@@ -1,0 +1,61 @@
+import { defineConfig } from 'vite'
+import vue from '@vitejs/plugin-vue'
+
+const apiTarget = process.env.VITE_API_TARGET || 'http://localhost:8080'
+
+export default defineConfig({
+  plugins: [vue()],
+
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined
+          if (id.includes('element-plus') || id.includes('@element-plus')) return 'element-plus'
+          if (id.includes('@stomp') || id.includes('sockjs')) return 'realtime'
+          if (id.includes('vue')) return 'vue-vendor'
+          return 'vendor'
+        }
+      }
+    }
+  },
+
+  server: {
+    host: '0.0.0.0',
+    port: 5173,
+    proxy: {
+      '/ws/collaborate': {
+        target: apiTarget,
+        changeOrigin: true,
+        ws: true,
+      },
+      '/ws': {
+        target: apiTarget,
+        changeOrigin: true,
+        ws: true,
+      },
+      '/api/ai': {
+        target: apiTarget,
+        changeOrigin: true,
+      },
+      '/api/skills': {
+        target: apiTarget,
+        changeOrigin: true,
+      },
+      '/api': {
+        target: apiTarget,
+        changeOrigin: false,
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            proxyReq.removeHeader('Origin')
+            proxyReq.setHeader('Origin', 'http://localhost:5173')
+            proxyReq.setHeader('Connection', 'keep-alive')
+          })
+          proxy.on('error', (err) => {
+            console.log('[proxy error]', err.message)
+          })
+        }
+      }
+    }
+  }
+})

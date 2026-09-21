@@ -1,0 +1,60 @@
+HELP.md
+target/
+*.log
+*.log.*
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+# Local secrets and environment-specific configuration
+.env
+.env.*
+!.env.example
+**/application-local.yml
+**/application-local.yaml
+reproduce/.env.local
+
+# Generated dependencies, runtime data and local tooling files
+node_modules/
+.m2repo/
+logs/
+minio-data/
+work/
+*.bak
+.idea/
+secrets/
+
+# Evaluation outputs are reproducible artifacts; keep scripts, datasets and summaries,
+# but do not commit generated JMeter HTML dependency trees or Python bytecode.
+evaluation/reports/
+evaluation/results/
+evaluation/generated-corpus/
+**/__pycache__/
+*.pyc

@@ -1,0 +1,27 @@
+-- Toolbox task reliability: MySQL is the source of truth, MinIO stores result bytes.
+CREATE TABLE IF NOT EXISTS `toolbox_job` (
+  `job_id` VARCHAR(64) NOT NULL,
+  `user_id` BIGINT NOT NULL,
+  `organization_id` VARCHAR(64) NOT NULL DEFAULT 'personal',
+  `tool_type` VARCHAR(64) NOT NULL,
+  `document_ids_json` LONGTEXT NOT NULL,
+  `document_names_json` LONGTEXT NULL,
+  `pages` VARCHAR(255) NULL,
+  `status` VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+  `progress` INT NOT NULL DEFAULT 0,
+  `message` VARCHAR(512) NULL,
+  `retry_count` INT NOT NULL DEFAULT 0,
+  `result_object_key` VARCHAR(512) NULL,
+  `file_name` VARCHAR(255) NULL,
+  `content_type` VARCHAR(255) NULL,
+  `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updated_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  `started_at` DATETIME(3) NULL,
+  `finished_at` DATETIME(3) NULL,
+  `expires_at` DATETIME(3) NULL,
+  PRIMARY KEY (`job_id`),
+  INDEX `idx_toolbox_job_owner` (`organization_id`, `user_id`, `created_at`),
+  INDEX `idx_toolbox_job_status` (`organization_id`, `status`, `updated_at`),
+  INDEX `idx_toolbox_job_expiry` (`status`, `expires_at`),
+  INDEX `idx_toolbox_job_result` (`result_object_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

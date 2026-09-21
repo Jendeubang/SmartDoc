@@ -1,0 +1,98 @@
+:root {
+  --smartdoc-primary: #7d9283;
+  --smartdoc-primary-hover: #6d8173;
+  --smartdoc-primary-active: #5f7165;
+  --smartdoc-primary-soft: #dde6df;
+  --smartdoc-primary-subtle: #f1f5f1;
+  --smartdoc-page: #e8eee9;
+  --smartdoc-surface: #fffdf9;
+  --smartdoc-surface-muted: #f7f9f7;
+  --smartdoc-text: #424a45;
+  --smartdoc-text-secondary: #707971;
+  --smartdoc-text-muted: #919a93;
+  --smartdoc-border: #e1e5df;
+  --smartdoc-border-strong: #ccd6cf;
+  --smartdoc-success: #64816d;
+  --smartdoc-warning: #a8864f;
+  --smartdoc-danger: #b76565;
+  --smartdoc-radius-sm: 10px;
+  --smartdoc-radius-md: 14px;
+  --smartdoc-radius-lg: 20px;
+  --smartdoc-shadow-sm: 0 5px 16px rgba(64, 78, 68, 0.06);
+  --smartdoc-shadow-md: 0 12px 34px rgba(64, 78, 68, 0.09);
+  --smartdoc-focus: 0 0 0 3px rgba(125, 146, 131, 0.25);
+}
+
+button,
+[role="button"],
+a,
+input,
+textarea,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+[role="button"]:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+.el-button:focus-visible,
+.el-input__wrapper:focus-within,
+.el-select__wrapper:focus-within {
+  outline: none;
+  box-shadow: var(--smartdoc-focus) !important;
+}
+
+.smartdoc-sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.smartdoc-surface {
+  border: 1px solid var(--smartdoc-border);
+  border-radius: var(--smartdoc-radius-lg);
+  background: var(--smartdoc-surface);
+  box-shadow: var(--smartdoc-shadow-sm);
+}
+
+.smartdoc-section-heading {
+  color: var(--smartdoc-text);
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.smartdoc-section-copy {
+  color: var(--smartdoc-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (forced-colors: active) {
+  button:focus-visible,
+  [role="button"]:focus-visible,
+  a:focus-visible {
+    outline: 2px solid CanvasText !important;
+    outline-offset: 2px;
+  }
+}
