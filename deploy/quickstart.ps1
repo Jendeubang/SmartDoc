@@ -55,7 +55,7 @@ function Set-EnvValue([string]$key, [string]$value, [bool]$force = $false) {
         $placeholder = [string]::IsNullOrWhiteSpace($current) -or
             $current.StartsWith('replace-with-', [System.StringComparison]::OrdinalIgnoreCase) -or
             $current.StartsWith('change-me', [System.StringComparison]::OrdinalIgnoreCase) -or
-            $current.Contains('replace-with-', [System.StringComparison]::OrdinalIgnoreCase)
+            $current.IndexOf('replace-with-', [System.StringComparison]::OrdinalIgnoreCase) -ge 0
         if (-not $force -and -not $placeholder) { return }
         $lines[$index] = "$key=$value"
     } else {
